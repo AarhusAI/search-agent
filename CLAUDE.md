@@ -8,14 +8,27 @@ Search Agent — a FastAPI service that implements a 3-stage web search pipeline
 
 ## Commands
 
+All Python commands run via docker compose (never directly on host):
+
 ```bash
-uv sync                           # Install dependencies
-uv run pytest                     # Run all tests
-uv run pytest tests/test_pipeline.py::TestSearchPipeline::test_pipeline_runs_all_stages  # Single test
-uv run ruff check src tests       # Lint
-uv run ruff format src tests      # Format
-uv run uvicorn search_agent.main:app --reload --port 8001  # Run dev server
-docker compose up -d              # Start search-agent + SearXNG
+docker compose up -d                                            # Start search-agent + SearXNG
+docker compose run --rm --no-deps search-agent uv run pytest    # Run all tests
+docker compose run --rm --no-deps search-agent uv run pytest tests/test_pipeline.py::TestSearchPipeline::test_pipeline_runs_all_stages  # Single test
+docker compose run --rm --no-deps search-agent uv run ruff check src tests   # Lint
+docker compose run --rm --no-deps search-agent uv run ruff format src tests  # Format
+```
+
+Or via [go-task](https://taskfile.dev/) (wraps docker compose):
+
+```bash
+task compose-up       # Start all services
+task test             # Run tests
+task lint             # Lint
+task format           # Format
+task coding-standards:check   # Lint + format check
+task coding-standards:apply   # Lint fix + format
+task build:image              # Build and push prod image to ghcr.io/aarhusai/search-agent
+task build:image TAG=v1.0.0   # With custom tag
 ```
 
 ## Architecture
@@ -49,7 +62,7 @@ All env vars use `SEARCH_AGENT_` prefix (via pydantic-settings). Key settings:
 - `SEARCH_AGENT_LLM_API_KEY`, `SEARCH_AGENT_LLM_MODEL` (default: `llama3`)
 - `SEARCH_AGENT_SEARXNG_URL` (default: `http://searxng:8080`)
 - `SEARCH_AGENT_SEARXNG_TIMEOUT` (15s), `SEARCH_AGENT_SEARCH_PIPELINE_TIMEOUT` (90s), `SEARCH_AGENT_LLM_TIMEOUT` (60s)
-- Agent prompts overridable via `SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT`, `SEARCH_AGENT_SEARCH_ANALYZER_PROMPT`, `SEARCH_AGENT_SEARCH_SYNTHESIZER_PROMPT`, `SEARCH_AGENT_SEARCH_ANALYZE_SYNTHESIZE_PROMPT`
+- Agent prompts overridable via `SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT`, `SEARCH_AGENT_SEARCH_ANALYZE_SYNTHESIZE_PROMPT`
 
 ## Testing
 
@@ -65,4 +78,9 @@ pytest-asyncio is configured with `asyncio_mode = "auto"` so async tests don't n
 
 ## Docker
 
-Multi-stage Dockerfile with `dev` and `prod` targets. docker-compose runs search-agent (port 8001) and SearXNG (port 8080) with health checks on both. Source is volume-mounted for live reload in dev.
+Multi-stage Dockerfile with `dev` and `prod` targets. docker-compose runs search-agent (port 8001) and SearXNG (port 8080) with health checks on both. Source is volume-mounted for live reload in dev. Build target is controlled by `ENV` variable (defaults to `dev`).
+
+## Important rules
+
+- **Never read `.env` files** — they contain secrets. Use `docker-compose.yml` or `config.py` to understand env vars.
+- **Always use docker compose** to run Python commands — never run `uv` or Python directly on the host.

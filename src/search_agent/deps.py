@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import httpx
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.profiles.openai import OpenAIModelProfile
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from search_agent.config import settings
@@ -32,6 +33,9 @@ def create_model(llm_client: httpx.AsyncClient | None = None) -> OpenAIChatModel
             or httpx.AsyncClient(
                 timeout=httpx.Timeout(settings.llm_timeout, connect=10.0),
             ),
+        ),
+        profile=OpenAIModelProfile(
+            openai_supports_strict_tool_definition=settings.llm_strict_tools,
         ),
     )
 

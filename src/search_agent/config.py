@@ -1,8 +1,14 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     model_config = {"env_prefix": "SEARCH_AGENT_"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def ignore_empty_env_vars(cls, values: dict) -> dict:
+        return {k: v for k, v in values.items() if v != ""}
 
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "not-needed"
@@ -15,6 +21,7 @@ class Settings(BaseSettings):
     searxng_timeout: int = 15
     search_pipeline_timeout: int = 90
     llm_timeout: int = 60
+    llm_strict_tools: bool = True
 
     datetime_timezone: str = "UTC"
     datetime_format: str = "%A, %B %-d, %Y, %H:%M %Z"
