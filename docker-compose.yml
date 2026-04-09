@@ -1,0 +1,59 @@
+networks:
+  frontend:
+    external: true
+  app:
+    driver: bridge
+    internal: false
+
+services:
+  search-agent:
+    build:
+      context: .
+      target: ${ENV:-dev}
+    command: ["uv", "run", "uvicorn", "search_agent.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+    ports:
+      - "8001"
+    networks:
+      - app
+      - frontend
+    depends_on:
+      searxng:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      SEARCH_AGENT_LLM_BASE_URL: ${SEARCH_AGENT_LLM_BASE_URL:?}
+      SEARCH_AGENT_LLM_API_KEY: ${SEARCH_AGENT_LLM_API_KEY:?}
+      SEARCH_AGENT_LLM_MODEL: ${SEARCH_AGENT_LLM_MODEL:?}
+      SEARCH_AGENT_SEARXNG_URL: ${SEARCH_AGENT_SEARXNG_URL:-http://searxng:8080}
+      SEARCH_AGENT_DATETIME_TIMEZONE: ${SEARCH_AGENT_DATETIME_TIMEZONE:-UTC}
+      SEARCH_AGENT_DATETIME_FORMAT: ${SEARCH_AGENT_DATETIME_FORMAT:-%A, %B %-d, %Y, %H:%M %Z}
+      SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT: ${SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT:-}
+      SEARCH_AGENT_SEARCH_ANALYZER_PROMPT: ${SEARCH_AGENT_SEARCH_ANALYZER_PROMPT:-}
+      SEARCH_AGENT_SEARCH_SYNTHESIZER_PROMPT: ${SEARCH_AGENT_SEARCH_SYNTHESIZER_PROMPT:-}
+    volumes:
+      - ./src:/app/src
+      - ./tests:/app/tests
+
+  searxng:
+    image: searxng/searxng:latest
+    networks:
+      - app
+    ports:
+      - '8080'
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-MySuperSecret}
+      SEARXNG_METHOD: ${SEARXNG_METHOD:-POST}
+    volumes:
+      - ./.docker/searxng/settings.yml:/etc/searxng/settings.yml
+      - ./.docker/data/searxng/:/var/cache/searxng/

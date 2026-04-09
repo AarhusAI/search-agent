@@ -1,0 +1,84 @@
+version: "3"
+
+dotenv: [".env.docker.local", ".env.local", ".env"]
+
+vars:
+  DOCKER_COMPOSE: '{{.TASK_DOCKER_COMPOSE | default "docker compose"}}'
+  SERVICE: search-agent
+
+tasks:
+  default:
+    desc: "List available tasks"
+    cmds:
+      - task --list-all
+    silent: true
+
+  # ---------------------------------------------------------------------------
+  # Docker Compose
+  # ---------------------------------------------------------------------------
+
+  compose:
+    cmds:
+      - "{{.DOCKER_COMPOSE}} {{.CLI_ARGS}}"
+
+  compose-up:
+    desc: "Start all services"
+    cmds:
+      - "{{.DOCKER_COMPOSE}} up --detach --remove-orphans"
+    silent: true
+
+  # ---------------------------------------------------------------------------
+  # Build
+  # ---------------------------------------------------------------------------
+
+  build:image:
+    desc: "Build and push production image to ghcr.io"
+    vars:
+      IMAGE: ghcr.io/aarhusai/search-agent
+      TAG: '{{.TAG | default "latest"}}'
+    cmds:
+      - docker build --target prod -t {{.IMAGE}}:{{.TAG}} .
+      - docker push {{.IMAGE}}:{{.TAG}}
+
+  # ---------------------------------------------------------------------------
+  # Test / Lint / Format
+  # ---------------------------------------------------------------------------
+
+  test:
+    desc: "Run tests"
+    cmds:
+      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run pytest {{.CLI_ARGS}}"
+
+  lint:
+    desc: "Lint code"
+    cmds:
+      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run ruff check src/"
+
+  lint:apply:
+    desc: "Fix lint issues"
+    cmds:
+      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run ruff check --fix src/"
+
+  format:
+    desc: "Format code"
+    cmds:
+      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run ruff format src/"
+
+  format:check:
+    desc: "Check code formatting"
+    cmds:
+      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run ruff format --check src/"
+
+  coding-standards:check:
+    desc: "Check coding standards"
+    cmds:
+      - task: lint
+      - task: format:check
+    silent: true
+
+  coding-standards:apply:
+    desc: "Apply coding standards"
+    cmds:
+      - task: lint:apply
+      - task: format
+    silent: true
