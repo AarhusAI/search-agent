@@ -33,9 +33,9 @@ docker compose up -d              # Start search-agent + SearXNG
 - `config.py` — `Settings` class using pydantic-settings. All env vars use `SEARCH_AGENT_` prefix.
 - `deps.py` — Shared httpx client and Pydantic AI model, initialized at app startup via lifespan.
 - `searxng.py` — SearXNG HTTP client with URL validation (http/https only).
-- `models.py` — `SearchRequest`, `RawSearchResult`, `SearchResult`, `Source`, `AnalyzedResults`.
+- `models.py` — `SearchRequest`, `RawSearchResult`, `SearchResult`, `Source`.
 - `mcp_server.py` — FastMCP server exposing `web_search` tool.
-- `agents/` — Pydantic AI agent definitions. `analyze_synthesizer.py` is the active combined agent; `analyzer.py` and `synthesizer.py` exist but are unused (the combined agent replaced them).
+- `agents/` — Pydantic AI agent definitions. `analyze_synthesizer.py` is the combined analyze+synthesize agent.
 
 ### Data Flow
 

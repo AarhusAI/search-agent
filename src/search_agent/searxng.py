@@ -29,7 +29,7 @@ async def search(client: httpx.AsyncClient, query: str) -> list[RawSearchResult]
         )
         response.raise_for_status()
         data = response.json()
-    except Exception:
+    except httpx.HTTPError:
         logger.exception("SearXNG request failed for query: %s", query)
         return []
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class RawSearchResult(BaseModel):
@@ -27,20 +27,6 @@ class Source(BaseModel):
     url: str
 
 
-class RelevantPassage(BaseModel):
-    """A passage extracted by the analyzer agent."""
-
-    text: str
-    source_url: str
-    relevance: str
-
-
-class AnalyzedResults(BaseModel):
-    """Output of the analyzer agent."""
-
-    relevant_passages: list[RelevantPassage]
-    sources: list[Source]
-
 
 class SearchResult(BaseModel):
     """Final pipeline output — sourced summary with citations."""
@@ -52,5 +38,5 @@ class SearchResult(BaseModel):
 class SearchRequest(BaseModel):
     """Incoming search request from the backend."""
 
-    query: str
-    context: str = ""
+    query: str = Field(..., min_length=1, max_length=2000)
+    context: str = Field(default="", max_length=10000)

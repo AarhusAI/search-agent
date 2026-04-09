@@ -56,7 +56,7 @@ class TestHealthEndpoint:
         mock_get_client.return_value = mock_http
 
         response = await client.get("/health?deep=true")
-        assert response.status_code == 200
+        assert response.status_code == 503
         data = response.json()
         assert data["status"] == "degraded"
         assert data["searxng"] == "unreachable"

@@ -65,11 +65,13 @@ async def close_shared_clients() -> None:
 
 def get_http_client() -> httpx.AsyncClient:
     """Return the shared SearXNG HTTP client."""
-    assert _http_client is not None, "Call init_shared_clients() first"
+    if _http_client is None:
+        raise RuntimeError("Call init_shared_clients() first")
     return _http_client
 
 
 def get_model() -> OpenAIChatModel:
     """Return the shared LLM model."""
-    assert _model is not None, "Call init_shared_clients() first"
+    if _model is None:
+        raise RuntimeError("Call init_shared_clients() first")
     return _model

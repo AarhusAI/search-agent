@@ -110,7 +110,7 @@ class TestSearXNGSearch:
 
     async def test_search_handles_error(self):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get = AsyncMock(side_effect=Exception("Connection failed"))
+        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
 
         results = await search(mock_client, "failing query")
         assert results == []
