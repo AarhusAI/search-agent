@@ -47,7 +47,7 @@ task build:image TAG=v1.0.0   # With custom tag
 - `deps.py` — Shared httpx client and Pydantic AI model, initialized at app startup via lifespan.
 - `searxng.py` — SearXNG HTTP client with URL validation (http/https only).
 - `models.py` — `SearchRequest`, `RawSearchResult`, `SearchResult`, `Source`.
-- `mcp_server.py` — FastMCP server exposing `web_search` tool.
+- `mcp_server.py` — FastMCP server exposing `search_web` tool (returns raw results for Open WebUI citation compatibility).
 - `agents/` — Pydantic AI agent definitions. `analyze_synthesizer.py` is the combined analyze+synthesize agent.
 
 ### Data Flow

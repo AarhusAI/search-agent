@@ -151,3 +151,82 @@ class TestIsSimpleQuery:
 
     def test_versus_not_simple(self):
         assert _is_simple_query("React versus Vue for frontend") is False
+
+
+class TestSearchPipelineRaw:
+    @patch("search_agent.pipeline.search_multiple")
+    @patch("search_agent.pipeline.query_planner")
+    @patch("search_agent.pipeline.get_http_client")
+    @patch("search_agent.pipeline.get_model")
+    async def test_raw_pipeline_returns_raw_results(
+        self, mock_get_model, mock_get_http_client, mock_planner, mock_search
+    ):
+        from search_agent.pipeline import run_search_pipeline_raw
+
+        mock_get_model.return_value = MagicMock()
+        mock_get_http_client.return_value = MagicMock()
+
+        planner_result = MagicMock()
+        planner_result.output = ["search query"]
+        mock_planner.run = AsyncMock(return_value=planner_result)
+
+        expected = [
+            RawSearchResult(
+                title="Result 1", url="https://a.com", snippet="Snippet 1", engine="google"
+            ),
+            RawSearchResult(
+                title="Result 2", url="https://b.com", snippet="Snippet 2", engine="bing"
+            ),
+        ]
+        mock_search.return_value = expected
+
+        result = await run_search_pipeline_raw("test query")
+
+        assert result == expected
+
+    @patch("search_agent.pipeline.search_multiple")
+    @patch("search_agent.pipeline.query_planner")
+    @patch("search_agent.pipeline.get_http_client")
+    @patch("search_agent.pipeline.get_model")
+    async def test_raw_pipeline_empty_results(
+        self, mock_get_model, mock_get_http_client, mock_planner, mock_search
+    ):
+        from search_agent.pipeline import run_search_pipeline_raw
+
+        mock_get_model.return_value = MagicMock()
+        mock_get_http_client.return_value = MagicMock()
+
+        planner_result = MagicMock()
+        planner_result.output = ["query"]
+        mock_planner.run = AsyncMock(return_value=planner_result)
+        mock_search.return_value = []
+
+        result = await run_search_pipeline_raw("empty query")
+
+        assert result == []
+
+    @patch("search_agent.pipeline.search_multiple")
+    @patch("search_agent.pipeline.query_planner")
+    @patch("search_agent.pipeline.get_http_client")
+    @patch("search_agent.pipeline.get_model")
+    async def test_raw_pipeline_caps_at_15(
+        self, mock_get_model, mock_get_http_client, mock_planner, mock_search
+    ):
+        from search_agent.pipeline import run_search_pipeline_raw
+
+        mock_get_model.return_value = MagicMock()
+        mock_get_http_client.return_value = MagicMock()
+
+        planner_result = MagicMock()
+        planner_result.output = ["query"]
+        mock_planner.run = AsyncMock(return_value=planner_result)
+        mock_search.return_value = [
+            RawSearchResult(
+                title=f"R{i}", url=f"https://{i}.com", snippet=f"S{i}", engine="google"
+            )
+            for i in range(20)
+        ]
+
+        result = await run_search_pipeline_raw("big query")
+
+        assert len(result) == 15

@@ -10,7 +10,7 @@ from search_agent.agents.analyze_synthesizer import analyze_synthesizer
 from search_agent.agents.query_planner import query_planner
 from search_agent.config import settings
 from search_agent.deps import PipelineDeps, get_http_client, get_model
-from search_agent.models import SearchResult
+from search_agent.models import RawSearchResult, SearchResult
 from search_agent.searxng import search_multiple
 
 logger = logging.getLogger(__name__)
@@ -36,23 +36,8 @@ def _is_simple_query(query: str) -> bool:
     return True
 
 
-async def run_search_pipeline(query: str, context: str = "") -> SearchResult:
-    """Run the full search pipeline: plan → search → analyze+synthesize."""
-    try:
-        async with asyncio.timeout(settings.search_pipeline_timeout):
-            return await _run_search_pipeline(query, context)
-    except TimeoutError:
-        logger.warning(
-            "Search pipeline timed out after %ds for query: %s",
-            settings.search_pipeline_timeout,
-            query,
-        )
-        return SearchResult(summary="Search timed out. Please try again.", sources=[])
-
-
-async def _run_search_pipeline(query: str, context: str = "") -> SearchResult:
-    """Inner pipeline logic wrapped by the timeout in run_search_pipeline."""
-    pipeline_start = time.monotonic()
+async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchResult]:
+    """Steps 1+2: plan queries and execute SearXNG search."""
     model = get_model()
     http_client = get_http_client()
     deps = PipelineDeps(http_client=http_client, model=model)
@@ -63,7 +48,6 @@ async def _run_search_pipeline(query: str, context: str = "") -> SearchResult:
 
     if settings.search_skip_planner_for_simple_queries and _is_simple_query(query):
         search_queries = [query]
-        planner_time = 0.0
         logger.info("Skipped query planner (simple query): %s", search_queries)
     else:
         planner_start = time.monotonic()
@@ -86,20 +70,40 @@ async def _run_search_pipeline(query: str, context: str = "") -> SearchResult:
     search_time = time.monotonic() - search_start
     logger.info("SearXNG returned %d results in %.1fs", len(raw_results), search_time)
 
-    if not raw_results:
-        total_time = time.monotonic() - pipeline_start
-        logger.info(
-            "Search pipeline: planner=%.1fs search=%.1fs total=%.1fs (no results)",
-            planner_time,
-            search_time,
-            total_time,
+    return raw_results
+
+
+async def run_search_pipeline(query: str, context: str = "") -> SearchResult:
+    """Run the full search pipeline: plan → search → analyze+synthesize."""
+    try:
+        async with asyncio.timeout(settings.search_pipeline_timeout):
+            return await _run_search_pipeline(query, context)
+    except TimeoutError:
+        logger.warning(
+            "Search pipeline timed out after %ds for query: %s",
+            settings.search_pipeline_timeout,
+            query,
         )
+        return SearchResult(summary="Search timed out. Please try again.", sources=[])
+
+
+async def _run_search_pipeline(query: str, context: str = "") -> SearchResult:
+    """Inner pipeline logic wrapped by the timeout in run_search_pipeline."""
+    pipeline_start = time.monotonic()
+
+    raw_results = await _run_plan_and_search(query, context)
+
+    if not raw_results:
         return SearchResult(summary="No search results found.", sources=[])
 
     # Limit results to avoid overwhelming the LLM
     raw_results = raw_results[:15]
 
     # Step 3: Analyze and synthesize in one pass
+    model = get_model()
+    http_client = get_http_client()
+    deps = PipelineDeps(http_client=http_client, model=model)
+
     analyze_synth_start = time.monotonic()
     raw_json = json.dumps([r.model_dump() for r in raw_results])
     result = await analyze_synthesizer.run(
@@ -116,11 +120,24 @@ async def _run_search_pipeline(query: str, context: str = "") -> SearchResult:
 
     total_time = time.monotonic() - pipeline_start
     logger.info(
-        "Search pipeline: planner=%.1fs search=%.1fs analyze_synthesize=%.1fs total=%.1fs",
-        planner_time,
-        search_time,
+        "Search pipeline: analyze_synthesize=%.1fs total=%.1fs",
         analyze_synth_time,
         total_time,
     )
 
     return result.output
+
+
+async def run_search_pipeline_raw(query: str, context: str = "") -> list[RawSearchResult]:
+    """Run steps 1+2 only (plan + search). Returns raw results with timeout."""
+    try:
+        async with asyncio.timeout(settings.search_pipeline_timeout):
+            results = await _run_plan_and_search(query, context)
+            return results[:15]
+    except TimeoutError:
+        logger.warning(
+            "Search pipeline (raw) timed out after %ds for query: %s",
+            settings.search_pipeline_timeout,
+            query,
+        )
+        return []

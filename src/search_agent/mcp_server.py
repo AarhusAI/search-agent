@@ -1,9 +1,11 @@
+import json
+
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
 from search_agent.config import settings
-from search_agent.models import SearchResult
-from search_agent.pipeline import run_search_pipeline
+from search_agent.models import RawSearchResult
+from search_agent.pipeline import run_search_pipeline_raw
 
 mcp = FastMCP(
     "search-agent",
@@ -14,7 +16,7 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-async def web_search(query: str, context: str = "") -> str:
+async def search_web(query: str, context: str = "") -> str:
     """Search the web for current information.
 
     Use this when the user asks about recent events, facts you're unsure about,
@@ -25,7 +27,12 @@ async def web_search(query: str, context: str = "") -> str:
         context: Optional conversation context to help refine the search.
 
     Returns:
-        JSON string with 'summary' and 'sources' keys.
+        JSON array of search results, each with 'title', 'link', and 'snippet' keys.
     """
-    result: SearchResult = await run_search_pipeline(query=query, context=context)
-    return result.model_dump_json()
+    raw_results: list[RawSearchResult] = await run_search_pipeline_raw(
+        query=query, context=context
+    )
+    formatted = [
+        {"title": r.title, "link": r.url, "snippet": r.snippet} for r in raw_results
+    ]
+    return json.dumps(formatted)
