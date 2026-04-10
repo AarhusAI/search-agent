@@ -8,27 +8,26 @@ Search Agent — a FastAPI service that implements a 3-stage web search pipeline
 
 ## Commands
 
-All Python commands run via docker compose (never directly on host):
+All Python commands run via docker compose (never directly on host). The Taskfile uses `docker compose exec` (requires running services), so start services first.
 
 ```bash
-docker compose up -d                                            # Start search-agent + SearXNG
-docker compose run --rm --no-deps search-agent uv run pytest    # Run all tests
-docker compose run --rm --no-deps search-agent uv run pytest tests/test_pipeline.py::TestSearchPipeline::test_pipeline_runs_all_stages  # Single test
-docker compose run --rm --no-deps search-agent uv run ruff check src tests   # Lint
-docker compose run --rm --no-deps search-agent uv run ruff format src tests  # Format
+task compose-up                          # Start all services (required before other task commands)
+task test                                # Run tests (uses exec)
+task test -- tests/test_pipeline.py::TestSearchPipeline::test_pipeline_runs_all_stages  # Single test
+task lint                                # Lint (src/ only)
+task format                              # Format (src/ only)
+task coding-standards:check              # Lint + format check
+task coding-standards:apply              # Lint fix + format
+task build:image                         # Build and push prod image to ghcr.io/aarhusai/search-agent
+task build:image TAG=v1.0.0              # With custom tag
 ```
 
-Or via [go-task](https://taskfile.dev/) (wraps docker compose):
+Alternative: direct docker compose (does not require running services):
 
 ```bash
-task compose-up       # Start all services
-task test             # Run tests
-task lint             # Lint
-task format           # Format
-task coding-standards:check   # Lint + format check
-task coding-standards:apply   # Lint fix + format
-task build:image              # Build and push prod image to ghcr.io/aarhusai/search-agent
-task build:image TAG=v1.0.0   # With custom tag
+docker compose run --rm --no-deps search-agent uv run pytest                    # Run all tests
+docker compose run --rm --no-deps search-agent uv run ruff check src tests      # Lint
+docker compose run --rm --no-deps search-agent uv run ruff format src tests     # Format
 ```
 
 ## Architecture
@@ -47,7 +46,7 @@ task build:image TAG=v1.0.0   # With custom tag
 - `deps.py` — Shared httpx client and Pydantic AI model, initialized at app startup via lifespan.
 - `searxng.py` — SearXNG HTTP client with URL validation (http/https only).
 - `models.py` — `SearchRequest`, `RawSearchResult`, `SearchResult`, `Source`.
-- `mcp_server.py` — FastMCP server exposing `search_web` tool (returns raw results for Open WebUI citation compatibility).
+- `mcp_server.py` — FastMCP server exposing `search_web` tool. Uses `run_search_pipeline_raw` (steps 1+2 only, no LLM synthesis) so callers get raw results for their own citation handling (e.g. Open WebUI).
 - `agents/` — Pydantic AI agent definitions. `analyze_synthesizer.py` is the combined analyze+synthesize agent.
 
 ### Data Flow
@@ -60,8 +59,12 @@ All env vars use `SEARCH_AGENT_` prefix (via pydantic-settings). Key settings:
 
 - `SEARCH_AGENT_LLM_BASE_URL` (default: `http://localhost:11434/v1`) — OpenAI-compatible endpoint (Ollama, etc.)
 - `SEARCH_AGENT_LLM_API_KEY`, `SEARCH_AGENT_LLM_MODEL` (default: `llama3`)
+- `SEARCH_AGENT_LLM_STRICT_TOOLS` (default: `true`) — OpenAI strict tool definitions
 - `SEARCH_AGENT_SEARXNG_URL` (default: `http://searxng:8080`)
 - `SEARCH_AGENT_SEARXNG_TIMEOUT` (15s), `SEARCH_AGENT_SEARCH_PIPELINE_TIMEOUT` (90s), `SEARCH_AGENT_LLM_TIMEOUT` (60s)
+- `SEARCH_AGENT_DATETIME_TIMEZONE` (default: `UTC`), `SEARCH_AGENT_DATETIME_FORMAT` — used in query planner prompts
+- `SEARCH_AGENT_MCP_ALLOWED_HOSTS` (default: `["search-agent:8001","localhost:8001"]`)
+- `SEARCH_AGENT_SEARCH_SKIP_PLANNER_FOR_SIMPLE_QUERIES` (default: `true`)
 - Agent prompts overridable via `SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT`, `SEARCH_AGENT_SEARCH_ANALYZE_SYNTHESIZE_PROMPT`
 
 ## Testing
@@ -78,7 +81,7 @@ pytest-asyncio is configured with `asyncio_mode = "auto"` so async tests don't n
 
 ## Docker
 
-Multi-stage Dockerfile with `dev` and `prod` targets. docker-compose runs search-agent (port 8001) and SearXNG (port 8080) with health checks on both. Source is volume-mounted for live reload in dev. Build target is controlled by `ENV` variable (defaults to `dev`).
+Multi-stage Dockerfile with `dev` and `prod` targets. docker-compose runs search-agent (container port 8001) and SearXNG (container port 8080) with health checks on both — ports are not host-mapped (random host ports unless overridden). Services connect via a bridge `app` network and an external `frontend` network. Source is volume-mounted for live reload in dev. Build target is controlled by `ENV` variable (defaults to `dev`).
 
 ## Important rules
 
