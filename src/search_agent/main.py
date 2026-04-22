@@ -11,7 +11,14 @@ from search_agent.mcp_server import mcp
 from search_agent.models import SearchRequest, SearchResult
 from search_agent.pipeline import run_search_pipeline
 
-logging.basicConfig(level=logging.INFO)
+_log_level = logging.DEBUG if settings.debug else logging.INFO
+logging.basicConfig(
+    level=_log_level,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+if settings.debug:
+    logging.getLogger("search_agent").setLevel(logging.DEBUG)
+    logging.getLogger("pydantic_ai").setLevel(logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 

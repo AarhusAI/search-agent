@@ -33,8 +33,19 @@ async def search(client: httpx.AsyncClient, query: str) -> list[RawSearchResult]
         logger.exception("SearXNG request failed for query: %s", query)
         return []
 
+    unresponsive = data.get("unresponsive_engines") or []
+    if unresponsive:
+        logger.warning("SearXNG engines unresponsive for query=%r: %s", query, unresponsive)
+    raw_results = data.get("results", [])
+    logger.debug(
+        "SearXNG response for query=%r: %d results, engines=%s",
+        query,
+        len(raw_results),
+        sorted({item.get("engine", "unknown") for item in raw_results}),
+    )
+
     results = []
-    for item in data.get("results", []):
+    for item in raw_results:
         title = item.get("title", "")
         url = item.get("url", "")
         snippet = item.get("content", "")

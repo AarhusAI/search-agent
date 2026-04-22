@@ -10,6 +10,7 @@ from search_agent.agents.analyze_synthesizer import analyze_synthesizer
 from search_agent.agents.query_planner import query_planner
 from search_agent.config import settings
 from search_agent.deps import PipelineDeps, get_http_client, get_model
+from search_agent.fetch import fetch_pages
 from search_agent.models import RawSearchResult, SearchResult
 from search_agent.searxng import search_multiple
 
@@ -26,12 +27,11 @@ _COMPLEX_QUERY_PATTERNS = re.compile(
 def _is_simple_query(query: str) -> bool:
     """Heuristic: return True if the query is simple enough to skip the planner."""
     words = query.split()
-    if len(words) > 15:
+    if len(words) > settings.search_simple_query_max_words:
         return False
     if _COMPLEX_QUERY_PATTERNS.search(query):
         return False
-    # Multiple questions (contains more than one '?')
-    if query.count("?") > 1:
+    if query.count("?") > settings.search_simple_query_max_questions:
         return False
     return True
 
@@ -54,8 +54,10 @@ async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchR
         prompt = f"Current date and time: {now}\nQuestion: {query}"
         if context:
             prompt += f"\nConversation context: {context}"
+        logger.debug("Query planner prompt: %s", prompt)
         plan_result = await query_planner.run(prompt, deps=deps, model=model)
-        search_queries = plan_result.output
+        logger.debug("Query planner raw output: %r", plan_result.output)
+        search_queries = plan_result.output[: settings.search_max_queries]
         planner_time = time.monotonic() - planner_start
         logger.info(
             "Query planner produced %d queries in %.1fs: %s",
@@ -97,25 +99,36 @@ async def _run_search_pipeline(query: str, context: str = "") -> SearchResult:
         return SearchResult(summary="No search results found.", sources=[])
 
     # Limit results to avoid overwhelming the LLM
-    raw_results = raw_results[:15]
+    raw_results = raw_results[: settings.search_max_results]
 
     # Step 3: Analyze and synthesize in one pass
     model = get_model()
     http_client = get_http_client()
     deps = PipelineDeps(http_client=http_client, model=model)
 
+    if settings.search_fetch_page_content:
+        fetch_start = time.monotonic()
+        raw_results = await fetch_pages(
+            http_client,
+            raw_results,
+            max_pages=settings.search_fetch_max_pages,
+            timeout=settings.search_fetch_timeout,
+            max_chars=settings.search_fetch_max_chars,
+            max_bytes=settings.search_fetch_max_bytes,
+        )
+        logger.info("Page fetch step took %.1fs", time.monotonic() - fetch_start)
+
     analyze_synth_start = time.monotonic()
-    raw_json = json.dumps([r.model_dump() for r in raw_results])
-    result = await analyze_synthesizer.run(
-        (
-            f"Question: {query}\n"
-            f"--- BEGIN EXTERNAL SEARCH RESULTS ---\n"
-            f"{raw_json}\n"
-            f"--- END EXTERNAL SEARCH RESULTS ---"
-        ),
-        deps=deps,
-        model=model,
+    raw_json = json.dumps([r.model_dump(exclude_none=True) for r in raw_results])
+    synth_prompt = (
+        f"Question: {query}\n"
+        f"--- BEGIN EXTERNAL SEARCH RESULTS ---\n"
+        f"{raw_json}\n"
+        f"--- END EXTERNAL SEARCH RESULTS ---"
     )
+    logger.debug("Analyze+synthesize prompt: %s", synth_prompt)
+    result = await analyze_synthesizer.run(synth_prompt, deps=deps, model=model)
+    logger.debug("Analyze+synthesize output: %r", result.output)
     analyze_synth_time = time.monotonic() - analyze_synth_start
 
     total_time = time.monotonic() - pipeline_start
@@ -133,7 +146,7 @@ async def run_search_pipeline_raw(query: str, context: str = "") -> list[RawSear
     try:
         async with asyncio.timeout(settings.search_pipeline_timeout):
             results = await _run_plan_and_search(query, context)
-            return results[:15]
+            return results[: settings.search_max_results]
     except TimeoutError:
         logger.warning(
             "Search pipeline (raw) timed out after %ds for query: %s",

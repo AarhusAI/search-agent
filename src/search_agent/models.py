@@ -8,6 +8,7 @@ class RawSearchResult(BaseModel):
     url: str
     snippet: str
     engine: str
+    content: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -25,7 +26,6 @@ class Source(BaseModel):
 
     title: str
     url: str
-
 
 
 class SearchResult(BaseModel):

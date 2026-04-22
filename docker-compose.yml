@@ -6,7 +6,7 @@ networks:
     internal: false
 
 services:
-  search-agent:
+  agent:
     build:
       context: .
       target: ${ENV:-dev}
@@ -39,9 +39,17 @@ services:
       SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT: ${SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT:-}
       SEARCH_AGENT_SEARCH_ANALYZE_SYNTHESIZE_PROMPT: ${SEARCH_AGENT_SEARCH_ANALYZE_SYNTHESIZE_PROMPT:-}
       SEARCH_AGENT_SEARCH_SKIP_PLANNER_FOR_SIMPLE_QUERIES: ${SEARCH_AGENT_SEARCH_SKIP_PLANNER_FOR_SIMPLE_QUERIES:-true}
+      SEARCH_AGENT_DEBUG: ${SEARCH_AGENT_DEBUG:-false}
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=frontend"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME:?}.rule=Host(`${COMPOSE_DOMAIN:?}`)"
+      # HTTPS config - enable redirect from :80 to :443
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME:?}.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
 
   searxng:
     image: searxng/searxng:latest
