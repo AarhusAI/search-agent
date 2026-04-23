@@ -4,6 +4,7 @@ from urllib.parse import urlparse
 
 import httpx
 
+from search_agent import cache
 from search_agent.config import settings
 from search_agent.models import RawSearchResult
 
@@ -19,8 +20,18 @@ def _is_valid_url(url: str) -> bool:
         return False
 
 
+def _normalize_query(query: str) -> str:
+    return query.strip().lower()
+
+
 async def search(client: httpx.AsyncClient, query: str) -> list[RawSearchResult]:
     """Execute a single search query against SearXNG and return structured results."""
+    cache_key = cache.make_key("searxng", _normalize_query(query), settings.searxng_url)
+    cached = await cache.get_json(cache_key)
+    if cached is not None:
+        logger.debug("searxng cache hit query=%r", query)
+        return [RawSearchResult.model_validate(item) for item in cached]
+
     try:
         response = await client.get(
             f"{settings.searxng_url}/search",
@@ -53,6 +64,12 @@ async def search(client: httpx.AsyncClient, query: str) -> list[RawSearchResult]
         if title and url and _is_valid_url(url):
             results.append(RawSearchResult(title=title, url=url, snippet=snippet, engine=engine))
 
+    if results:
+        await cache.set_json(
+            cache_key,
+            [r.model_dump(mode="json") for r in results],
+            ttl=settings.cache_searxng_ttl,
+        )
     return results
 
 

@@ -19,6 +19,8 @@ services:
     depends_on:
       searxng:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
       interval: 15s
@@ -48,6 +50,12 @@ services:
       SEARCH_AGENT_SEARCH_FETCH_TIMEOUT: ${SEARCH_AGENT_SEARCH_FETCH_TIMEOUT:-10}
       SEARCH_AGENT_SEARCH_FETCH_MAX_CHARS: ${SEARCH_AGENT_SEARCH_FETCH_MAX_CHARS:-5000}
       SEARCH_AGENT_SEARCH_FETCH_MAX_BYTES: ${SEARCH_AGENT_SEARCH_FETCH_MAX_BYTES:-2000000}
+      SEARCH_AGENT_CACHE_BACKEND: ${SEARCH_AGENT_CACHE_BACKEND:-redis}
+      SEARCH_AGENT_CACHE_REDIS_URL: ${SEARCH_AGENT_CACHE_REDIS_URL:-redis://redis:6379/0}
+      SEARCH_AGENT_CACHE_FETCH_TTL: ${SEARCH_AGENT_CACHE_FETCH_TTL:-3600}
+      SEARCH_AGENT_CACHE_FETCH_NEGATIVE_TTL: ${SEARCH_AGENT_CACHE_FETCH_NEGATIVE_TTL:-300}
+      SEARCH_AGENT_CACHE_SEARXNG_TTL: ${SEARCH_AGENT_CACHE_SEARXNG_TTL:-300}
+      SEARCH_AGENT_CACHE_PLANNER_TTL: ${SEARCH_AGENT_CACHE_PLANNER_TTL:-21600}
       SEARCH_AGENT_DEBUG: ${SEARCH_AGENT_DEBUG:-false}
     volumes:
       - ./src:/app/src
@@ -78,3 +86,19 @@ services:
     volumes:
       - ./.docker/searxng/settings.yml:/etc/searxng/settings.yml
       - ./.docker/data/searxng/:/var/cache/searxng/
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - app
+    ports:
+      - "6379"
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - ./.docker/data/redis/:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -68,6 +70,14 @@ class Settings(BaseSettings):
     search_fetch_timeout: int = 10
     search_fetch_max_chars: int = 5000
     search_fetch_max_bytes: int = 2_000_000
+
+    # Cache controls. In-memory is for tests/dev only; production uses redis.
+    cache_backend: Literal["redis", "memory", "disabled"] = "redis"
+    cache_redis_url: str = "redis://redis:6379/0"
+    cache_fetch_ttl: int = 3600
+    cache_fetch_negative_ttl: int = 300
+    cache_searxng_ttl: int = 300
+    cache_planner_ttl: int = 21600
 
 
 settings = Settings()

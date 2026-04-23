@@ -40,3 +40,4 @@ class SearchRequest(BaseModel):
 
     query: str = Field(..., min_length=1, max_length=2000)
     context: str = Field(default="", max_length=10000)
+    no_cache: bool = False

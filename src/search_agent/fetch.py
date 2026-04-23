@@ -7,6 +7,8 @@ from urllib.parse import urlparse
 import httpx
 import trafilatura
 
+from search_agent import cache
+from search_agent.config import settings
 from search_agent.models import RawSearchResult
 from search_agent.searxng import _is_valid_url
 
@@ -37,7 +39,33 @@ async def _fetch_one(
     max_chars: int,
     max_bytes: int,
 ) -> str | None:
-    """Fetch a URL and return extracted main text, or None on any failure."""
+    """Fetch a URL and return extracted main text, or None on any failure.
+
+    Results are cached: successful extracts for `cache_fetch_ttl`, failures
+    (invalid URL, SSRF block, HTTP error, empty extract) for the shorter
+    `cache_fetch_negative_ttl` so transient failures recover quickly.
+    """
+    cache_key = cache.make_key("fetch", url, max_chars)
+    cached = await cache.get_json(cache_key)
+    if cached is not None:
+        logger.debug("fetch cache hit url=%s ok=%s", url, cached.get("ok"))
+        return cached.get("text") if cached.get("ok") else None
+
+    text = await _fetch_one_uncached(client, url, timeout, max_chars, max_bytes)
+    if text:
+        await cache.set_json(cache_key, {"ok": True, "text": text}, ttl=settings.cache_fetch_ttl)
+    else:
+        await cache.set_json(cache_key, {"ok": False}, ttl=settings.cache_fetch_negative_ttl)
+    return text
+
+
+async def _fetch_one_uncached(
+    client: httpx.AsyncClient,
+    url: str,
+    timeout: float,
+    max_chars: int,
+    max_bytes: int,
+) -> str | None:
     if not _is_valid_url(url):
         return None
 

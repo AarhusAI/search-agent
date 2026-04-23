@@ -6,6 +6,7 @@ import time
 import zoneinfo
 from datetime import datetime
 
+from search_agent import cache
 from search_agent.agents.analyze_synthesizer import analyze_synthesizer
 from search_agent.agents.query_planner import query_planner
 from search_agent.config import settings
@@ -50,21 +51,37 @@ async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchR
         search_queries = [query]
         logger.info("Skipped query planner (simple query): %s", search_queries)
     else:
-        planner_start = time.monotonic()
-        prompt = f"Current date and time: {now}\nQuestion: {query}"
-        if context:
-            prompt += f"\nConversation context: {context}"
-        logger.debug("Query planner prompt: %s", prompt)
-        plan_result = await query_planner.run(prompt, deps=deps, model=model)
-        logger.debug("Query planner raw output: %r", plan_result.output)
-        search_queries = plan_result.output[: settings.search_max_queries]
-        planner_time = time.monotonic() - planner_start
-        logger.info(
-            "Query planner produced %d queries in %.1fs: %s",
-            len(search_queries),
-            planner_time,
-            search_queries,
-        )
+        # Date bucket in the cache key (not just TTL) because the planner prompt
+        # contains `now`; a TTL crossing midnight would otherwise return a plan
+        # pinned to yesterday's date.
+        today_bucket = datetime.now(tz=tz).strftime("%Y-%m-%d")
+        planner_key = cache.make_key("planner", query.strip().lower(), context, today_bucket)
+        cached_plan = await cache.get_json(planner_key)
+        if cached_plan is not None:
+            search_queries = list(cached_plan)[: settings.search_max_queries]
+            logger.info(
+                "Query planner cache hit (%d queries): %s",
+                len(search_queries),
+                search_queries,
+            )
+        else:
+            planner_start = time.monotonic()
+            prompt = f"Current date and time: {now}\nQuestion: {query}"
+            if context:
+                prompt += f"\nConversation context: {context}"
+            logger.debug("Query planner prompt: %s", prompt)
+            plan_result = await query_planner.run(prompt, deps=deps, model=model)
+            logger.debug("Query planner raw output: %r", plan_result.output)
+            search_queries = plan_result.output[: settings.search_max_queries]
+            planner_time = time.monotonic() - planner_start
+            logger.info(
+                "Query planner produced %d queries in %.1fs: %s",
+                len(search_queries),
+                planner_time,
+                search_queries,
+            )
+            if search_queries:
+                await cache.set_json(planner_key, search_queries, ttl=settings.cache_planner_ttl)
 
     # Step 2: Execute searches (no LLM, just HTTP → SearXNG)
     search_start = time.monotonic()

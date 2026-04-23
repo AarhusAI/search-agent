@@ -15,6 +15,7 @@ dependencies = [
     "httpx>=0.28",
     "mcp[cli]>=1.0",
     "trafilatura>=1.12",
+    "redis>=5.0",
 ]
 
 [dependency-groups]
@@ -23,6 +24,7 @@ dev = [
     "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",
     "ruff>=0.9",
+    "fakeredis>=2.20",
 ]
 
 [tool.hatch.build.targets.wheel]

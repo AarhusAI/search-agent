@@ -5,6 +5,8 @@ import httpx
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from search_agent import cache
+from search_agent.cache import close_cache, init_cache
 from search_agent.config import settings
 from search_agent.deps import close_shared_clients, get_http_client, init_shared_clients
 from search_agent.mcp_server import mcp
@@ -25,8 +27,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_shared_clients()
+    init_cache()
     async with mcp.session_manager.run():
         yield
+    await close_cache()
     await close_shared_clients()
 
 
@@ -54,9 +58,18 @@ async def health(deep: bool = False):
 @app.post("/api/v1/search", response_model=SearchResult)
 async def search(request: SearchRequest) -> SearchResult:
     """Run the search pipeline and return a sourced summary."""
-    logger.info("Search request: query=%r context=%r", request.query, request.context)
+    logger.info(
+        "Search request: query=%r context=%r no_cache=%s",
+        request.query,
+        request.context,
+        request.no_cache,
+    )
     try:
-        result = await run_search_pipeline(query=request.query, context=request.context)
+        if request.no_cache:
+            with cache.bypass():
+                result = await run_search_pipeline(query=request.query, context=request.context)
+        else:
+            result = await run_search_pipeline(query=request.query, context=request.context)
         return result
     except Exception:
         logger.exception("Search pipeline failed")
