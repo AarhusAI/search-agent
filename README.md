@@ -4,31 +4,37 @@ A FastAPI service that implements a 3-stage web search pipeline using [Pydantic 
 
 ## Architecture
 
+```mermaid
+flowchart TD
+    Req([SearchRequest<br/>query, context, no_cache])
+    Planner[Query Planner<br/>LLM · skipped for simple queries]
+    Search[Search Executor<br/>SearXNG · concurrent · deduped]
+    Fetch[Fetch &amp; Extract<br/>optional · trafilatura]
+    Synth[Analyze + Synthesize<br/>LLM · cited summary]
+    Resp([SearchResult<br/>summary, sources])
+
+    Req --> Planner --> Search --> Fetch --> Synth --> Resp
+
+    subgraph Redis["Redis cache — fail-open · bypass via no_cache=true"]
+      direction TB
+      CP[("planner:v1<br/>key: normalized query + context + YYYY-MM-DD<br/>TTL 6h")]
+      CS[("searxng:v1<br/>key: normalized query + searxng_url<br/>TTL 5min")]
+      CF[("fetch:v1<br/>key: url + max_chars<br/>TTL 1h hit / 5min miss")]
+    end
+
+    Planner <-.-> CP
+    Search <-.-> CS
+    Fetch <-.-> CF
 ```
-SearchRequest(query, context)
-        |
-        v
-  Query Planner        -- decomposes complex questions into up to N targeted queries (LLM)
-        |                  skipped for simple queries (heuristics are configurable)
-        v
-  Search Executor      -- calls SearXNG, runs queries concurrently, dedupes by URL, capped by setting
-        |
-        v
-  (optional) Fetch     -- for the top N results, fetches the page and extracts main text
-        |                  via trafilatura; opt-in via SEARCH_AGENT_SEARCH_FETCH_PAGE_CONTENT
-        v
-  Analyze+Synthesize   -- filters, ranks, extracts passages, generates cited summary (LLM)
-        |
-        v
-  SearchResult(summary, sources)
-```
+
+See the [Caching](#caching) section below for fail-open semantics, bypass behaviour, and backend choices.
 
 ### Endpoints
 
 | Endpoint | Method | Description |
 |---|---|---|
 | `/health` | GET | Health check. Pass `?deep=true` to also verify SearXNG connectivity. |
-| `/api/v1/search` | POST | Run the full search pipeline. Accepts `{"query": "...", "context": "..."}`. |
+| `/api/v1/search` | POST | Run the full search pipeline. Accepts `{"query": "...", "context": "...", "no_cache": false}`. Set `no_cache: true` to bypass Redis and force a fresh run. |
 | `/` | - | MCP Streamable HTTP transport. Exposes `search_web` tool (steps 1+2 only, no LLM synthesis). |
 
 ## Prerequisites
@@ -68,6 +74,7 @@ SearchRequest(query, context)
    This starts:
    - **agent** (the search-agent service) on container port `8001` (random host port unless overridden)
    - **searxng** on container port `8080` (random host port unless overridden)
+   - **redis** on container port `6379` (random host port unless overridden) — shared cache for planner output, SearXNG results, and fetched page extracts
 
 3. **Verify it's running:**
 
@@ -109,6 +116,30 @@ All environment variables use the `SEARCH_AGENT_` prefix (via pydantic-settings)
 | `SEARCH_AGENT_SEARCH_FETCH_MAX_BYTES` | `2000000` | Abort a page fetch if the response exceeds this many bytes |
 | `SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT` | *(built-in)* | Override the query planner system prompt |
 | `SEARCH_AGENT_SEARCH_ANALYZE_SYNTHESIZE_PROMPT` | *(built-in)* | Override the analyze+synthesize system prompt |
+| `SEARCH_AGENT_CACHE_BACKEND` | `redis` | Cache backend: `redis` (production — shared across pods), `memory` (tests/dev only, per-process), or `disabled`. |
+| `SEARCH_AGENT_CACHE_REDIS_URL` | `redis://redis:6379/0` | Redis connection URL. Used only when `CACHE_BACKEND=redis`. |
+| `SEARCH_AGENT_CACHE_FETCH_TTL` | `3600` | TTL (seconds) for successful page extracts. |
+| `SEARCH_AGENT_CACHE_FETCH_NEGATIVE_TTL` | `300` | TTL (seconds) for failed/empty fetches (SSRF block, 4xx, byte-cap, empty extract) so transient failures recover quickly. |
+| `SEARCH_AGENT_CACHE_SEARXNG_TTL` | `300` | TTL (seconds) for SearXNG result lists. Short by default because engine rankings shift quickly. |
+| `SEARCH_AGENT_CACHE_PLANNER_TTL` | `21600` | TTL (seconds) for cached planner outputs. The cache key includes today's date (`YYYY-MM-DD`), so entries roll daily regardless of TTL. |
+
+## Caching
+
+Three pipeline stages are cached in Redis to avoid repeating deterministic work across requests and pods:
+
+| Stage | Cache key | Positive TTL | Negative TTL |
+|---|---|---|---|
+| Query planner | `planner:v1:sha256(normalized_query + context + YYYY-MM-DD)` | `CACHE_PLANNER_TTL` (6h) | not cached |
+| SearXNG search | `searxng:v1:sha256(normalized_query + searxng_url)` | `CACHE_SEARXNG_TTL` (5min) | not cached (empty results allowed to retry) |
+| Page fetch (per URL) | `fetch:v1:sha256(url + max_chars)` | `CACHE_FETCH_TTL` (1h) | `CACHE_FETCH_NEGATIVE_TTL` (5min) |
+
+**Fail-open:** every cache operation is wrapped so that Redis errors or timeouts (300ms socket budget) degrade to a miss and the request continues unaffected. A dead or slow Redis will never break search.
+
+**Bypass:** set `"no_cache": true` on a `/api/v1/search` request to force a fresh run. The flag only affects that request and doesn't clear existing entries.
+
+**Backend choice:** production uses `redis` so state is shared across all pods. `memory` is intentionally limited to tests and local single-pod dev — it fragments per process and defeats the shared-hit-rate goal. `disabled` is useful for debugging freshness issues.
+
+**Namespace versioning:** keys are prefixed with `:v1:` so a change to a cached value's shape (e.g. a new `RawSearchResult` field) can be invalidated by bumping the version in `src/search_agent/cache.py` instead of flushing Redis.
 
 ## Development
 
@@ -126,12 +157,21 @@ task coding-standards:check              # Lint + format check
 task coding-standards:apply              # Lint fix + format
 ```
 
+> **Heads-up:** `Taskfile.yml` currently sets `SERVICE: search-agent`, but the docker-compose service is named `agent`. Until that variable is fixed, every task that runs `docker compose exec {{.SERVICE}}` (`task test`, `task lint`, `task format`, etc.) will fail with `service "search-agent" is not running`. Use the direct Docker Compose commands below in the meantime.
+
 ### Direct Docker Compose (does not require running services)
 
 ```bash
 docker compose run --rm --no-deps agent uv run pytest
 docker compose run --rm --no-deps agent uv run ruff check src tests
 docker compose run --rm --no-deps agent uv run ruff format src tests
+```
+
+To run against the running containers (picks up the volume-mounted source):
+
+```bash
+docker compose exec agent uv run pytest
+docker compose exec agent uv run ruff check src tests
 ```
 
 ### Building the production image
@@ -150,7 +190,7 @@ The Dockerfile uses multi-stage builds with `dev` and `prod` targets. The build 
 - **dev** -- includes test/lint tools, source is volume-mounted for live reload
 - **prod** -- runtime dependencies only (`uv sync --no-dev`)
 
-Services connect via a `bridge` network (`app`) and an external `frontend` network. SearXNG configuration lives in `.docker/searxng/settings.yml`.
+Services connect via a `bridge` network (`app`) and an external `frontend` network. SearXNG configuration lives in `.docker/searxng/settings.yml`. Redis data persists under `.docker/data/redis/`; the service runs with a 256MB `maxmemory` cap and `allkeys-lru` eviction so it can't grow unbounded.
 
 ## Tech Stack
 
@@ -161,6 +201,7 @@ Services connect via a `bridge` network (`app`) and an external `frontend` netwo
 - [MCP](https://modelcontextprotocol.io/) (Model Context Protocol) for tool integration
 - [httpx](https://www.python-httpx.org/) for async HTTP
 - [trafilatura](https://trafilatura.readthedocs.io/) for optional main-content extraction from result pages
+- [Redis](https://redis.io/) as the shared pipeline cache (via `redis-py`)
 - [uv](https://docs.astral.sh/uv/) for package management
 - [ruff](https://docs.astral.sh/ruff/) for linting and formatting
 - [Task](https://taskfile.dev/) for task running
