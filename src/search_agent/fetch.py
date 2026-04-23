@@ -72,6 +72,7 @@ async def _fetch_one(
         body,
         include_comments=False,
         include_tables=False,
+        output_format="markdown",
     )
     if not text:
         return None
