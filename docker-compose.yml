@@ -6,7 +6,7 @@ networks:
     internal: false
 
 services:
-  search-agent:
+  agent:
     build:
       context: .
       target: ${ENV:-dev}
@@ -18,6 +18,8 @@ services:
       - frontend
     depends_on:
       searxng:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
@@ -39,9 +41,32 @@ services:
       SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT: ${SEARCH_AGENT_SEARCH_QUERY_PLANNER_PROMPT:-}
       SEARCH_AGENT_SEARCH_ANALYZE_SYNTHESIZE_PROMPT: ${SEARCH_AGENT_SEARCH_ANALYZE_SYNTHESIZE_PROMPT:-}
       SEARCH_AGENT_SEARCH_SKIP_PLANNER_FOR_SIMPLE_QUERIES: ${SEARCH_AGENT_SEARCH_SKIP_PLANNER_FOR_SIMPLE_QUERIES:-true}
+      SEARCH_AGENT_SEARCH_MAX_QUERIES: ${SEARCH_AGENT_SEARCH_MAX_QUERIES:-3}
+      SEARCH_AGENT_SEARCH_MAX_RESULTS: ${SEARCH_AGENT_SEARCH_MAX_RESULTS:-15}
+      SEARCH_AGENT_SEARCH_SIMPLE_QUERY_MAX_WORDS: ${SEARCH_AGENT_SEARCH_SIMPLE_QUERY_MAX_WORDS:-15}
+      SEARCH_AGENT_SEARCH_SIMPLE_QUERY_MAX_QUESTIONS: ${SEARCH_AGENT_SEARCH_SIMPLE_QUERY_MAX_QUESTIONS:-1}
+      SEARCH_AGENT_SEARCH_FETCH_PAGE_CONTENT: ${SEARCH_AGENT_SEARCH_FETCH_PAGE_CONTENT:-false}
+      SEARCH_AGENT_SEARCH_FETCH_MAX_PAGES: ${SEARCH_AGENT_SEARCH_FETCH_MAX_PAGES:-5}
+      SEARCH_AGENT_SEARCH_FETCH_TIMEOUT: ${SEARCH_AGENT_SEARCH_FETCH_TIMEOUT:-10}
+      SEARCH_AGENT_SEARCH_FETCH_MAX_CHARS: ${SEARCH_AGENT_SEARCH_FETCH_MAX_CHARS:-5000}
+      SEARCH_AGENT_SEARCH_FETCH_MAX_BYTES: ${SEARCH_AGENT_SEARCH_FETCH_MAX_BYTES:-2000000}
+      SEARCH_AGENT_CACHE_BACKEND: ${SEARCH_AGENT_CACHE_BACKEND:-redis}
+      SEARCH_AGENT_CACHE_REDIS_URL: ${SEARCH_AGENT_CACHE_REDIS_URL:-redis://redis:6379/0}
+      SEARCH_AGENT_CACHE_FETCH_TTL: ${SEARCH_AGENT_CACHE_FETCH_TTL:-3600}
+      SEARCH_AGENT_CACHE_FETCH_NEGATIVE_TTL: ${SEARCH_AGENT_CACHE_FETCH_NEGATIVE_TTL:-300}
+      SEARCH_AGENT_CACHE_SEARXNG_TTL: ${SEARCH_AGENT_CACHE_SEARXNG_TTL:-300}
+      SEARCH_AGENT_CACHE_PLANNER_TTL: ${SEARCH_AGENT_CACHE_PLANNER_TTL:-21600}
+      SEARCH_AGENT_DEBUG: ${SEARCH_AGENT_DEBUG:-false}
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=frontend"
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME:?}.rule=Host(`${COMPOSE_DOMAIN:?}`)"
+      # HTTPS config - enable redirect from :80 to :443
+      - "traefik.http.routers.${COMPOSE_PROJECT_NAME:?}.middlewares=redirect-to-https"
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
 
   searxng:
     image: searxng/searxng:latest
@@ -61,3 +86,19 @@ services:
     volumes:
       - ./.docker/searxng/settings.yml:/etc/searxng/settings.yml
       - ./.docker/data/searxng/:/var/cache/searxng/
+
+  redis:
+    image: redis:7-alpine
+    networks:
+      - app
+    ports:
+      - "6379"
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - ./.docker/data/redis/:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 5s

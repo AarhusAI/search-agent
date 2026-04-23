@@ -8,6 +8,7 @@ class RawSearchResult(BaseModel):
     url: str
     snippet: str
     engine: str
+    content: str | None = None
 
     @field_validator("title")
     @classmethod
@@ -27,7 +28,6 @@ class Source(BaseModel):
     url: str
 
 
-
 class SearchResult(BaseModel):
     """Final pipeline output — sourced summary with citations."""
 
@@ -40,3 +40,4 @@ class SearchRequest(BaseModel):
 
     query: str = Field(..., min_length=1, max_length=2000)
     context: str = Field(default="", max_length=10000)
+    no_cache: bool = False

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
@@ -9,6 +11,8 @@ class Settings(BaseSettings):
     @classmethod
     def ignore_empty_env_vars(cls, values: dict) -> dict:
         return {k: v for k, v in values.items() if v != ""}
+
+    debug: bool = False
 
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "not-needed"
@@ -38,7 +42,10 @@ class Settings(BaseSettings):
         "You are a search result analyst and summarizer. Given a user question and raw search "
         "results from the web, perform the following in a single pass:\n"
         "1. Evaluate each result for relevance to the question. Discard irrelevant noise.\n"
-        "2. Extract the most important facts and passages from relevant results.\n"
+        "2. Extract the most important facts and passages from relevant results. Each result "
+        "has a short 'snippet' (always present) and may also have a longer 'content' field "
+        "containing extracted main text from the page. When 'content' is present, prefer it "
+        "over 'snippet' for factual extraction.\n"
         "3. Produce a clear, well-structured summary that answers the question.\n"
         "4. Include inline citations using [1], [2], etc. referencing the sources list.\n"
         "5. Compile a deduplicated list of sources (title + URL) for the citations used.\n"
@@ -50,6 +57,27 @@ class Settings(BaseSettings):
         "the search result text."
     )
     search_skip_planner_for_simple_queries: bool = True
+
+    # Search count controls
+    search_max_queries: int = 3
+    search_max_results: int = 15
+    search_simple_query_max_words: int = 15
+    search_simple_query_max_questions: int = 1
+
+    # Page fetch controls
+    search_fetch_page_content: bool = False
+    search_fetch_max_pages: int = 5
+    search_fetch_timeout: int = 10
+    search_fetch_max_chars: int = 5000
+    search_fetch_max_bytes: int = 2_000_000
+
+    # Cache controls. In-memory is for tests/dev only; production uses redis.
+    cache_backend: Literal["redis", "memory", "disabled"] = "redis"
+    cache_redis_url: str = "redis://redis:6379/0"
+    cache_fetch_ttl: int = 3600
+    cache_fetch_negative_ttl: int = 300
+    cache_searxng_ttl: int = 300
+    cache_planner_ttl: int = 21600
 
 
 settings = Settings()

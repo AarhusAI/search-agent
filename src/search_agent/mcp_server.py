@@ -29,10 +29,6 @@ async def search_web(query: str, context: str = "") -> str:
     Returns:
         JSON array of search results, each with 'title', 'link', and 'snippet' keys.
     """
-    raw_results: list[RawSearchResult] = await run_search_pipeline_raw(
-        query=query, context=context
-    )
-    formatted = [
-        {"title": r.title, "link": r.url, "snippet": r.snippet} for r in raw_results
-    ]
+    raw_results: list[RawSearchResult] = await run_search_pipeline_raw(query=query, context=context)
+    formatted = [{"title": r.title, "link": r.url, "snippet": r.snippet} for r in raw_results]
     return json.dumps(formatted)
