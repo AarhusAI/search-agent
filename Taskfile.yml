@@ -41,6 +41,21 @@ tasks:
       - docker push {{.IMAGE}}:{{.TAG}}
 
   # ---------------------------------------------------------------------------
+  # Dependencies
+  # ---------------------------------------------------------------------------
+
+  uv:lock:
+    desc: "Regenerate uv.lock (pass -- --upgrade to bump versions, or -- --upgrade-package <name>)"
+    cmds:
+      - >-
+        docker run --rm
+        -u "$(id -u):$(id -g)"
+        -e HOME=/tmp
+        -v "$PWD":/work -w /work
+        ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+        uv lock {{.CLI_ARGS}}
+
+  # ---------------------------------------------------------------------------
   # Test / Lint / Format
   # ---------------------------------------------------------------------------
 

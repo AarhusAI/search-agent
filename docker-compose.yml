@@ -10,7 +10,7 @@ services:
     build:
       context: .
       target: ${ENV:-dev}
-    command: ["uv", "run", "uvicorn", "search_agent.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
+    command: ["uv", "run", "--no-sync", "uvicorn", "search_agent.main:app", "--host", "0.0.0.0", "--port", "8001", "--reload"]
     ports:
       - "8001"
     networks:
