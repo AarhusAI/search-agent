@@ -58,11 +58,19 @@ async def health(deep: bool = False):
 @app.post("/api/v1/search", response_model=SearchResult)
 async def search(request: SearchRequest) -> SearchResult:
     """Run the search pipeline and return a sourced summary."""
+    # Don't log `context` at INFO — it routinely carries conversation
+    # history / PII. Truncate `query` for the same reason. Full text is
+    # available at DEBUG (opt-in via SEARCH_AGENT_DEBUG=true).
     logger.info(
-        "Search request: query=%r context=%r no_cache=%s",
+        "Search request: query=%r context_len=%d no_cache=%s",
+        request.query[:80],
+        len(request.context),
+        request.no_cache,
+    )
+    logger.debug(
+        "Search request (full): query=%r context=%r",
         request.query,
         request.context,
-        request.no_cache,
     )
     try:
         if request.no_cache:
