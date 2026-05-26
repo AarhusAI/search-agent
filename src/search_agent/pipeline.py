@@ -148,6 +148,16 @@ async def _run_search_pipeline(query: str, context: str = "") -> SearchResult:
     logger.debug("Analyze+synthesize output: %r", result.output)
     analyze_synth_time = time.monotonic() - analyze_synth_start
 
+    # Drop sources the LLM invented: the model can be coaxed by adversarial
+    # snippet/content text into emitting attacker-chosen URLs that the UI
+    # would render as clickable citations. Keep only URLs that came from the
+    # raw result set.
+    allowed_urls = {r.url for r in raw_results}
+    dropped = [s.url for s in result.output.sources if s.url not in allowed_urls]
+    if dropped:
+        logger.warning("Dropped %d fabricated source URL(s): %s", len(dropped), dropped)
+    result.output.sources = [s for s in result.output.sources if s.url in allowed_urls]
+
     total_time = time.monotonic() - pipeline_start
     logger.info(
         "Search pipeline: analyze_synthesize=%.1fs total=%.1fs",

@@ -25,6 +25,8 @@ dev = [
     "pytest-cov>=6.0",
     "ruff>=0.9",
     "fakeredis>=2.20",
+    "pip-audit>=2.7",
+    "bandit>=1.7",
 ]
 
 [tool.hatch.build.targets.wheel]
