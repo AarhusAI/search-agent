@@ -57,8 +57,16 @@ async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchR
         today_bucket = datetime.now(tz=tz).strftime("%Y-%m-%d")
         planner_key = cache.make_key("planner", query.strip().lower(), context, today_bucket)
         cached_plan = await cache.get_json(planner_key)
+        # Defend against a corrupted / poisoned cache entry: only trust a
+        # list-of-strings shape. Anything else would silently feed garbage
+        # (or attacker-chosen) values into SearXNG.
+        if cached_plan is not None and not (
+            isinstance(cached_plan, list) and all(isinstance(q, str) for q in cached_plan)
+        ):
+            logger.warning("Discarded malformed planner cache entry: %r", cached_plan)
+            cached_plan = None
         if cached_plan is not None:
-            search_queries = list(cached_plan)[: settings.search_max_queries]
+            search_queries = cached_plan[: settings.search_max_queries]
             logger.info(
                 "Query planner cache hit (%d queries): %s",
                 len(search_queries),

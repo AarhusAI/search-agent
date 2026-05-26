@@ -22,6 +22,13 @@ class Settings(BaseSettings):
 
     mcp_allowed_hosts: list[str] = ["search-agent:8001", "localhost:8001"]
 
+    # Hard cap on incoming request body. Pydantic's per-field max_length only
+    # runs after the whole body is buffered, so without this an oversized
+    # POST forces uvicorn to allocate the buffer before validation kicks in.
+    # 64 KiB leaves room for the configured query + context maxes after JSON
+    # encoding (incl. worst-case Unicode escapes).
+    max_request_body_bytes: int = 65536
+
     searxng_timeout: int = 15
     search_pipeline_timeout: int = 90
     llm_timeout: int = 60

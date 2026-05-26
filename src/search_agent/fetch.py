@@ -19,7 +19,14 @@ _MAX_REDIRECTS = 5
 
 
 async def _host_is_public(host: str) -> bool:
-    """Return True only if every resolved address for host is public routable."""
+    """Return True only if every resolved address for host is globally routable.
+
+    Why ``is_global`` and not a denylist: ``is_global`` is the inverse of
+    every reserved range (private, loopback, link-local, multicast, reserved,
+    unspecified, …) so we don't have to remember to extend the list when a
+    new range is reserved. Notably this catches ``0.0.0.0`` / ``::`` (which
+    fall back to loopback when connected to) and ``240.0.0.0/4``.
+    """
     try:
         infos = await asyncio.to_thread(socket.getaddrinfo, host, None, type=socket.SOCK_STREAM)
     except socket.gaierror:
@@ -30,7 +37,7 @@ async def _host_is_public(host: str) -> bool:
             ip = ipaddress.ip_address(addr)
         except ValueError:
             return False
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast:
+        if not ip.is_global:
             return False
     return bool(infos)
 

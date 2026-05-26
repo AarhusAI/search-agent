@@ -3,7 +3,8 @@ from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from search_agent import cache
 from search_agent.cache import close_cache, init_cache
@@ -34,7 +35,39 @@ async def lifespan(app: FastAPI):
     await close_shared_clients()
 
 
+class MaxBodySizeMiddleware:
+    """Reject HTTP requests advertising a Content-Length over ``max_bytes``.
+
+    Why: FastAPI/uvicorn don't cap request body size by default, so an
+    oversized POST forces the worker to buffer arbitrary bytes before
+    Pydantic's field validators ever run. Chunked-transfer clients without
+    a Content-Length header bypass this check — acceptable here because
+    JSON clients always send Content-Length, and the cap is also enforced
+    upstream by the reverse proxy in real deployments.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self._app = app
+        self._max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            for name, value in scope.get("headers") or []:
+                if name == b"content-length":
+                    try:
+                        declared = int(value)
+                    except ValueError:
+                        break
+                    if declared > self._max_bytes:
+                        response = PlainTextResponse("Request body too large", status_code=413)
+                        await response(scope, receive, send)
+                        return
+                    break
+        await self._app(scope, receive, send)
+
+
 app = FastAPI(title="Search Agent", lifespan=lifespan)
+app.add_middleware(MaxBodySizeMiddleware, max_bytes=settings.max_request_body_bytes)
 
 
 @app.get("/health")
