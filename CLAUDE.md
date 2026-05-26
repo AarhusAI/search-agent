@@ -11,12 +11,12 @@ Search Agent — a FastAPI service that implements a 3-stage web search pipeline
 All Python commands run via docker compose (never directly on host). The Taskfile uses `docker compose exec` (requires running services), so start services first.
 
 ```bash
-task compose-up                          # Start all services (required before other task commands)
+task up                                  # Start all services (required before other task commands)
 task test                                # Run tests (uses exec)
 task test -- tests/test_pipeline.py::TestSearchPipeline::test_pipeline_runs_all_stages  # Single test
-task lint                                # Lint (src/ only)
-task format                              # Format (src/ only)
-task coding-standards:check              # Lint + format check
+task lint:check                          # Lint (src/ only)
+task lint:format                         # Format (src/ only)
+task lint                                # Lint + format check
 task coding-standards:apply              # Lint fix + format
 task build:image                         # Build and push prod image to ghcr.io/aarhusai/search-agent
 task build:image TAG=v1.0.0              # With custom tag

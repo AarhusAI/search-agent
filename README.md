@@ -62,7 +62,7 @@ See the [Caching](#caching) section below for fail-open semantics, bypass behavi
 2. **Start the services:**
 
    ```bash
-   task compose-up
+   task up
    ```
 
    Or without Task:
@@ -148,12 +148,12 @@ All Python commands run via Docker Compose -- never directly on the host.
 ### Task commands (requires running services)
 
 ```bash
-task compose-up                          # Start all services (required first)
+task up                                  # Start all services (required first)
 task test                                # Run tests
 task test -- tests/test_pipeline.py      # Run a specific test file
-task lint                                # Lint (src/ only)
-task format                              # Format (src/ only)
-task coding-standards:check              # Lint + format check
+task lint:check                          # Lint (src/ only)
+task lint:format                         # Format (src/ only)
+task lint                                # Lint + format check
 task coding-standards:apply              # Lint fix + format
 ```
 

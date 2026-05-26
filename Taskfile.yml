@@ -4,7 +4,9 @@ dotenv: [".env.docker.local", ".env.local", ".env"]
 
 vars:
   DOCKER_COMPOSE: '{{.TASK_DOCKER_COMPOSE | default "docker compose"}}'
-  SERVICE: search-agent
+  SERVICE: agent
+  #PYTHON: "{{.DOCKER_COMPOSE}} exec {{.SERVICE}}"
+  PYTHON: "docker exec -e HOME=/tmp -i openwebui-search-agent-1 uv run --no-sync"
 
 tasks:
   default:
@@ -21,7 +23,7 @@ tasks:
     cmds:
       - "{{.DOCKER_COMPOSE}} {{.CLI_ARGS}}"
 
-  compose-up:
+  up:
     desc: "Start all services"
     cmds:
       - "{{.DOCKER_COMPOSE}} up --detach --remove-orphans"
@@ -62,38 +64,58 @@ tasks:
   test:
     desc: "Run tests"
     cmds:
-      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run pytest {{.CLI_ARGS}}"
+      - "{{.PYTHON}} pytest {{.CLI_ARGS}}"
 
   lint:
-    desc: "Lint code"
-    cmds:
-      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run ruff check src/"
-
-  lint:apply:
-    desc: "Fix lint issues"
-    cmds:
-      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run ruff check --fix src/"
-
-  format:
-    desc: "Format code"
-    cmds:
-      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run ruff format src/"
-
-  format:check:
-    desc: "Check code formatting"
-    cmds:
-      - "{{.DOCKER_COMPOSE}} exec {{.SERVICE}} uv run ruff format --check src/"
-
-  coding-standards:check:
     desc: "Check coding standards"
     cmds:
-      - task: lint
-      - task: format:check
+      - task: lint:check
+      - task: lint:format:check
     silent: true
+
+  lint:check:
+    desc: "Lint code"
+    cmds:
+      - "{{.PYTHON}} ruff check src/"
+
+  lint:fix:
+    desc: "Fix lint issues"
+    cmds:
+      - "{{.PYTHON}} ruff check --fix src/"
+
+  lint:format:
+    desc: "Format code"
+    cmds:
+      - "{{.PYTHON}} ruff format src/"
+
+  lint:format:check:
+    desc: "Check code formatting"
+    cmds:
+      - "{{.PYTHON}} ruff format --check src/"
 
   coding-standards:apply:
     desc: "Apply coding standards"
     cmds:
-      - task: lint:apply
-      - task: format
+      - task: lint:fix
+      - task: lint:format
     silent: true
+
+  # ---------------------------------------------------------------------------
+  # Security audit
+  # ---------------------------------------------------------------------------
+
+  audit:
+    desc: "Run all security audit tools (advisory, doesn't fail CI by default)"
+    cmds:
+      - task: audit:deps
+      - task: audit:code
+
+  audit:deps:
+    desc: "Scan installed dependencies for known CVEs (pip-audit)"
+    cmds:
+      - "{{.PYTHON}} pip-audit --strict ."
+
+  audit:code:
+    desc: "Static security scan of src/ (bandit)"
+    cmds:
+      - "{{.PYTHON}} bandit -r src/ -ll"
