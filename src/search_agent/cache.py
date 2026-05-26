@@ -138,7 +138,11 @@ def init_cache() -> None:
         logger.info("cache backend=redis url=%s", settings.cache_redis_url)
     elif backend_name == "memory":
         _backend = InMemoryBackend()
-        logger.info("cache backend=memory (tests/dev only — do NOT use in multi-pod prod)")
+        # WARNING (not INFO) so this surfaces in log alerting — the memory
+        # backend is per-process and silently fragments state in multi-pod
+        # deployments, which can mask incidents until a cache-coherence bug
+        # appears in prod.
+        logger.warning("cache backend=memory (tests/dev only — do NOT use in multi-pod prod)")
     else:
         _backend = DisabledBackend()
         logger.info("cache backend=disabled")

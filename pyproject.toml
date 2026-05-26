@@ -8,14 +8,21 @@ version = "0.1.0"
 description = "Search agent — web search pipeline powered by Pydantic AI"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.115",
+    # fastapi 0.136.3 added an undocumented typosquat-shaped dependency
+    # `fastar>=0.9.0` to the [standard] extra (advisory MAL-2026-4750). We
+    # don't install fastapi[standard], but the version itself is flagged —
+    # exclude it explicitly so a future `uv lock --upgrade` can't grab it.
+    "fastapi>=0.115,!=0.136.3",
     "uvicorn[standard]>=0.34",
-    "pydantic-ai>=0.1",
+    # Tightened lower bounds: pre-1.0 pydantic-ai and early mcp releases had
+    # breaking API changes; trafilatura 1.x and redis 5.x are several majors
+    # behind the resolved lockfile versions.
+    "pydantic-ai>=1.0",
     "pydantic-settings>=2.7",
     "httpx>=0.28",
-    "mcp[cli]>=1.0",
-    "trafilatura>=1.12",
-    "redis>=5.0",
+    "mcp[cli]>=1.20",
+    "trafilatura>=2.0",
+    "redis>=7.0",
 ]
 
 [dependency-groups]
