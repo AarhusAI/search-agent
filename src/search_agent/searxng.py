@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from urllib.parse import urlparse
 
@@ -9,6 +10,28 @@ from search_agent.config import settings
 from search_agent.models import RawSearchResult
 
 logger = logging.getLogger(__name__)
+
+
+async def _read_capped_json(response: httpx.Response, max_bytes: int) -> dict | None:
+    """Stream a JSON response body, aborting if it exceeds ``max_bytes``.
+
+    Why: ``response.json()`` reads the full body unbounded. SearXNG is a
+    trusted peer today, but a misbehaving or compromised peer could
+    otherwise OOM the worker (and poison the cache slot for the query).
+    """
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes():
+        total += len(chunk)
+        if total > max_bytes:
+            logger.warning("SearXNG response exceeded %d bytes; aborting read", max_bytes)
+            return None
+        chunks.append(chunk)
+    try:
+        return json.loads(b"".join(chunks))
+    except json.JSONDecodeError:
+        logger.warning("SearXNG returned non-JSON body")
+        return None
 
 
 def _is_valid_url(url: str) -> bool:
@@ -33,15 +56,18 @@ async def search(client: httpx.AsyncClient, query: str) -> list[RawSearchResult]
         return [RawSearchResult.model_validate(item) for item in cached]
 
     try:
-        response = await client.get(
+        async with client.stream(
+            "GET",
             f"{settings.searxng_url}/search",
             params={"q": query, "format": "json"},
             timeout=settings.searxng_timeout,
-        )
-        response.raise_for_status()
-        data = response.json()
+        ) as response:
+            response.raise_for_status()
+            data = await _read_capped_json(response, settings.searxng_max_response_bytes)
     except httpx.HTTPError:
         logger.exception("SearXNG request failed for query: %s", query)
+        return []
+    if data is None:
         return []
 
     unresponsive = data.get("unresponsive_engines") or []

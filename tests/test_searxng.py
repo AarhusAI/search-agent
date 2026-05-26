@@ -4,6 +4,7 @@ import httpx
 
 from search_agent.models import RawSearchResult
 from search_agent.searxng import _is_valid_url, search, search_multiple
+from tests.conftest import make_stream_mock
 
 
 class TestIsValidUrl:
@@ -67,27 +68,27 @@ class TestRawSearchResultTruncation:
 
 class TestSearXNGSearch:
     async def test_search_returns_structured_results(self):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "title": "Test Result",
-                    "url": "https://example.com",
-                    "content": "A test snippet",
-                    "engine": "google",
-                },
-                {
-                    "title": "Another Result",
-                    "url": "https://example.org",
-                    "content": "Another snippet",
-                    "engine": "bing",
-                },
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
-
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.stream = MagicMock(
+            return_value=make_stream_mock(
+                {
+                    "results": [
+                        {
+                            "title": "Test Result",
+                            "url": "https://example.com",
+                            "content": "A test snippet",
+                            "engine": "google",
+                        },
+                        {
+                            "title": "Another Result",
+                            "url": "https://example.org",
+                            "content": "Another snippet",
+                            "engine": "bing",
+                        },
+                    ]
+                }
+            )
+        )
 
         results = await search(mock_client, "test query")
 
@@ -98,57 +99,53 @@ class TestSearXNGSearch:
         assert results[0].engine == "google"
 
     async def test_search_handles_empty_results(self):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {"results": []}
-        mock_response.raise_for_status = MagicMock()
-
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.stream = MagicMock(return_value=make_stream_mock({"results": []}))
 
         results = await search(mock_client, "empty query")
         assert results == []
 
     async def test_search_handles_error(self):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get = AsyncMock(side_effect=httpx.ConnectError("Connection failed"))
+        mock_client.stream = MagicMock(side_effect=httpx.ConnectError("Connection failed"))
 
         results = await search(mock_client, "failing query")
         assert results == []
 
     async def test_search_filters_invalid_urls(self):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "title": "Good",
-                    "url": "https://example.com",
-                    "content": "ok",
-                    "engine": "google",
-                },
-                {
-                    "title": "JS injection",
-                    "url": "javascript:alert(1)",
-                    "content": "bad",
-                    "engine": "google",
-                },
-                {
-                    "title": "File access",
-                    "url": "file:///etc/passwd",
-                    "content": "bad",
-                    "engine": "google",
-                },
-                {
-                    "title": "Also good",
-                    "url": "http://example.org",
-                    "content": "ok",
-                    "engine": "bing",
-                },
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
-
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.stream = MagicMock(
+            return_value=make_stream_mock(
+                {
+                    "results": [
+                        {
+                            "title": "Good",
+                            "url": "https://example.com",
+                            "content": "ok",
+                            "engine": "google",
+                        },
+                        {
+                            "title": "JS injection",
+                            "url": "javascript:alert(1)",
+                            "content": "bad",
+                            "engine": "google",
+                        },
+                        {
+                            "title": "File access",
+                            "url": "file:///etc/passwd",
+                            "content": "bad",
+                            "engine": "google",
+                        },
+                        {
+                            "title": "Also good",
+                            "url": "http://example.org",
+                            "content": "ok",
+                            "engine": "bing",
+                        },
+                    ]
+                }
+            )
+        )
 
         results = await search(mock_client, "mixed urls")
 
@@ -157,26 +154,47 @@ class TestSearXNGSearch:
         assert results[1].url == "http://example.org"
 
     async def test_search_multiple_deduplicates(self):
-        mock_response_1 = MagicMock()
-        mock_response_1.json.return_value = {
-            "results": [
-                {"title": "A", "url": "https://a.com", "content": "A", "engine": "google"},
-                {"title": "B", "url": "https://b.com", "content": "B", "engine": "google"},
-            ]
-        }
-        mock_response_1.raise_for_status = MagicMock()
-
-        mock_response_2 = MagicMock()
-        mock_response_2.json.return_value = {
-            "results": [
-                {"title": "B dup", "url": "https://b.com", "content": "B again", "engine": "bing"},
-                {"title": "C", "url": "https://c.com", "content": "C", "engine": "bing"},
-            ]
-        }
-        mock_response_2.raise_for_status = MagicMock()
-
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get = AsyncMock(side_effect=[mock_response_1, mock_response_2])
+        mock_client.stream = MagicMock(
+            side_effect=[
+                make_stream_mock(
+                    {
+                        "results": [
+                            {
+                                "title": "A",
+                                "url": "https://a.com",
+                                "content": "A",
+                                "engine": "google",
+                            },
+                            {
+                                "title": "B",
+                                "url": "https://b.com",
+                                "content": "B",
+                                "engine": "google",
+                            },
+                        ]
+                    }
+                ),
+                make_stream_mock(
+                    {
+                        "results": [
+                            {
+                                "title": "B dup",
+                                "url": "https://b.com",
+                                "content": "B again",
+                                "engine": "bing",
+                            },
+                            {
+                                "title": "C",
+                                "url": "https://c.com",
+                                "content": "C",
+                                "engine": "bing",
+                            },
+                        ]
+                    }
+                ),
+            ]
+        )
 
         results = await search_multiple(mock_client, ["query1", "query2"])
 

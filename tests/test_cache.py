@@ -13,6 +13,7 @@ from search_agent.cache import (
 )
 from search_agent.fetch import _fetch_one
 from search_agent.searxng import search
+from tests.conftest import make_stream_mock
 
 
 @pytest.fixture
@@ -112,8 +113,7 @@ class TestBypass:
 
 class TestSearXNGCaching:
     async def test_search_caches_and_reuses(self, in_memory_backend):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
+        result_body = {
             "results": [
                 {
                     "title": "Test",
@@ -123,21 +123,18 @@ class TestSearXNGCaching:
                 }
             ]
         }
-        mock_response.raise_for_status = MagicMock()
-
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.stream = MagicMock(side_effect=lambda *a, **kw: make_stream_mock(result_body))
 
         r1 = await search(mock_client, "hello")
         r2 = await search(mock_client, "hello")
 
-        assert mock_client.get.call_count == 1  # second call hit cache
+        assert mock_client.stream.call_count == 1  # second call hit cache
         assert len(r1) == 1 == len(r2)
         assert r1[0].url == r2[0].url
 
     async def test_search_cache_is_case_insensitive(self, in_memory_backend):
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
+        result_body = {
             "results": [
                 {
                     "title": "Test",
@@ -147,13 +144,12 @@ class TestSearXNGCaching:
                 }
             ]
         }
-        mock_response.raise_for_status = MagicMock()
         mock_client = AsyncMock(spec=httpx.AsyncClient)
-        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.stream = MagicMock(side_effect=lambda *a, **kw: make_stream_mock(result_body))
 
         await search(mock_client, "Hello World")
         await search(mock_client, "hello world  ")  # trailing spaces + case
-        assert mock_client.get.call_count == 1
+        assert mock_client.stream.call_count == 1
 
 
 class TestFetchCaching:

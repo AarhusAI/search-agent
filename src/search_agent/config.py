@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     max_request_body_bytes: int = 65536
 
     searxng_timeout: int = 15
+    # Hard cap on bytes read from a SearXNG response. SearXNG is a trusted
+    # peer today, but ``response.json()`` will otherwise read whatever it's
+    # handed — a misbehaving or compromised peer could OOM the worker and
+    # poison the Redis cache slot for the requested query.
+    searxng_max_response_bytes: int = 5_000_000
     search_pipeline_timeout: int = 90
     llm_timeout: int = 60
     llm_strict_tools: bool = True
