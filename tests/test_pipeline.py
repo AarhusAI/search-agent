@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from search_agent.models import (
     RawSearchResult,
@@ -123,7 +123,7 @@ class TestSearchPipeline:
         assert result.summary == "The answer [1]."
         # Planner should not have been called — search_multiple gets the raw query
         mock_search.assert_called_once_with(
-            mock_get_http_client.return_value, ["What is the population of Denmark?"]
+            ANY, mock_get_http_client.return_value, ["What is the population of Denmark?"]
         )
 
 
@@ -277,7 +277,7 @@ class TestSearchCountSettings:
         await run_search_pipeline("a long multi-part query needing real planning")
 
         # search_multiple is called with at most max_queries queries
-        called_queries = mock_search.call_args.args[1]
+        called_queries = mock_search.call_args.args[2]
         assert called_queries == ["q1", "q2"]
 
     @patch("search_agent.pipeline.analyze_synthesizer")

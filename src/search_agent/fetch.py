@@ -10,7 +10,7 @@ import trafilatura
 from search_agent import cache
 from search_agent.config import settings
 from search_agent.models import RawSearchResult
-from search_agent.searxng import _is_valid_url
+from search_agent.providers.base import is_valid_url
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ async def _fetch_with_validated_redirects(
     """
     current = url
     for _ in range(_MAX_REDIRECTS + 1):
-        if not _is_valid_url(current):
+        if not is_valid_url(current):
             return None
         host = urlparse(current).hostname
         if not host or not await _host_is_public(host):
@@ -160,13 +160,17 @@ async def fetch_pages(
 ) -> list[RawSearchResult]:
     """Fetch and extract main content for up to max_pages results.
 
-    Results beyond max_pages keep content=None. Any fetch failure leaves
-    content=None so the pipeline continues with just the snippet.
+    Results that already carry content (a provider like Staan can return
+    full page text with the search response) are left untouched; only the
+    first max_pages results without content are fetched. Any fetch failure
+    leaves content=None so the pipeline continues with just the snippet.
     """
     if max_pages <= 0 or not results:
         return results
 
-    targets = results[:max_pages]
+    targets = [r for r in results if not r.content][:max_pages]
+    if not targets:
+        return results
     extracted = await asyncio.gather(
         *(_fetch_one(client, r.url, timeout, max_chars, max_bytes) for r in targets)
     )

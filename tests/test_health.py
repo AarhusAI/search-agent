@@ -35,28 +35,47 @@ class TestHealthEndpoint:
         assert response.json() == {"status": "ok"}
 
     @patch("search_agent.main.get_http_client")
-    async def test_deep_health_searxng_ok(self, mock_get_client, client):
-        mock_response = MagicMock()
-        mock_response.raise_for_status = MagicMock()
-
-        mock_http = AsyncMock(spec=httpx.AsyncClient)
-        mock_http.get = AsyncMock(return_value=mock_response)
-        mock_get_client.return_value = mock_http
+    @patch("search_agent.main.get_provider")
+    async def test_deep_health_backend_ok(self, mock_get_provider, mock_get_client, client):
+        provider = MagicMock()
+        provider.name = "searxng"
+        provider.health = AsyncMock(return_value=True)
+        mock_get_provider.return_value = provider
+        mock_get_client.return_value = AsyncMock(spec=httpx.AsyncClient)
 
         response = await client.get("/health?deep=true")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
-        assert data["searxng"] == "reachable"
+        assert data["provider"] == "searxng"
+        assert data["search_backend"] == "reachable"
 
     @patch("search_agent.main.get_http_client")
-    async def test_deep_health_searxng_down(self, mock_get_client, client):
-        mock_http = AsyncMock(spec=httpx.AsyncClient)
-        mock_http.get = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
-        mock_get_client.return_value = mock_http
+    @patch("search_agent.main.get_provider")
+    async def test_deep_health_backend_down(self, mock_get_provider, mock_get_client, client):
+        provider = MagicMock()
+        provider.name = "searxng"
+        provider.health = AsyncMock(return_value=False)
+        mock_get_provider.return_value = provider
+        mock_get_client.return_value = AsyncMock(spec=httpx.AsyncClient)
 
         response = await client.get("/health?deep=true")
         assert response.status_code == 503
         data = response.json()
         assert data["status"] == "degraded"
-        assert data["searxng"] == "unreachable"
+        assert data["provider"] == "searxng"
+        assert data["search_backend"] == "unreachable"
+
+    @patch("search_agent.main.get_http_client")
+    @patch("search_agent.main.get_provider")
+    async def test_deep_health_uninitialized_clients(
+        self, mock_get_provider, mock_get_client, client
+    ):
+        provider = MagicMock()
+        provider.name = "searxng"
+        mock_get_provider.return_value = provider
+        mock_get_client.side_effect = RuntimeError("Call init_shared_clients() first")
+
+        response = await client.get("/health?deep=true")
+        assert response.status_code == 503
+        assert response.json()["status"] == "degraded"

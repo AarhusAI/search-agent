@@ -1,6 +1,6 @@
 # Search Agent
 
-A FastAPI service that implements a 3-stage web search pipeline using [Pydantic AI](https://ai.pydantic.dev/) agents and [SearXNG](https://docs.searxng.org/) as the search backend. Also exposes search as an [MCP](https://modelcontextprotocol.io/) tool for integration with LLM-powered applications (e.g. Open WebUI).
+A FastAPI service that implements a 3-stage web search pipeline using [Pydantic AI](https://ai.pydantic.dev/) agents and a pluggable search backend — [SearXNG](https://docs.searxng.org/) (default) or [Staan Web for AI](https://docs.staan.ai/docs/web-for-ai). Also exposes search as an [MCP](https://modelcontextprotocol.io/) tool for integration with LLM-powered applications (e.g. Open WebUI).
 
 ## Architecture
 
@@ -98,8 +98,19 @@ All environment variables use the `SEARCH_AGENT_` prefix (via pydantic-settings)
 | `SEARCH_AGENT_LLM_MODEL` | `llama3` | Model name |
 | `SEARCH_AGENT_LLM_STRICT_TOOLS` | `true` | OpenAI strict tool definitions. Set to `false` for models that don't support it (e.g. Mistral). |
 | `SEARCH_AGENT_LLM_TIMEOUT` | `60` | LLM request timeout (seconds) |
+| `SEARCH_AGENT_SEARCH_PROVIDER` | `searxng` | Search backend: `searxng` (self-hosted) or `staan` ([Staan Web for AI](https://docs.staan.ai/docs/web-for-ai)) |
 | `SEARCH_AGENT_SEARXNG_URL` | `http://searxng:8080` | SearXNG instance URL |
 | `SEARCH_AGENT_SEARXNG_TIMEOUT` | `15` | SearXNG request timeout (seconds) |
+| `SEARCH_AGENT_STAAN_API_KEY` | *(empty)* | **Required when provider is `staan`** — startup fails without it. Never logged. |
+| `SEARCH_AGENT_STAAN_URL` | `https://api.staan.ai` | Staan API base URL |
+| `SEARCH_AGENT_STAAN_MARKET` | `en-us` | Market/locale for Staan searches (e.g. `da-dk`) |
+| `SEARCH_AGENT_STAAN_TIMEOUT` | `10` | Staan request timeout (seconds); docs recommend 8–10s with enrichment |
+| `SEARCH_AGENT_STAAN_ENRICHMENT` | `full_content` | `full_content` (full page body as markdown per result), `extra_snippets` (semantically scored chunks), or `none` (snippets only) |
+| `SEARCH_AGENT_STAAN_MAX_SNIPPETS` | `3` | Max chunks per result (`extra_snippets` mode only, 1–10) |
+| `SEARCH_AGENT_STAAN_MIN_SCORE` | `0.1` | Min chunk relevance (`extra_snippets` mode only, 0–1) |
+| `SEARCH_AGENT_STAAN_CONTENT_MAX_CHARS` | `5000` | Per-result cap on enrichment text mapped into `content` |
+| `SEARCH_AGENT_STAAN_CONTENT_MAX_RESULTS` | `5` | Only the top N (reranked) results keep `content`; the rest stay snippet-only. Enforced globally across all planner queries, so it bounds the whole synthesizer prompt (not each query). Together with the char cap this keeps the prompt inside the LLM context window. |
+| `SEARCH_AGENT_STAAN_MAX_RESPONSE_BYTES` | `10000000` | Max bytes read from a Staan response before the read is aborted. Larger than the SearXNG cap because `full_content` returns whole page bodies per result. |
 | `SEARCH_AGENT_SEARCH_PIPELINE_TIMEOUT` | `90` | Overall pipeline timeout (seconds) |
 | `SEARCH_AGENT_DATETIME_TIMEZONE` | `UTC` | Timezone for date/time in query planner prompts |
 | `SEARCH_AGENT_DATETIME_FORMAT` | `%A, %B %-d, %Y, %H:%M %Z` | Date format string |
@@ -121,6 +132,7 @@ All environment variables use the `SEARCH_AGENT_` prefix (via pydantic-settings)
 | `SEARCH_AGENT_CACHE_FETCH_TTL` | `3600` | TTL (seconds) for successful page extracts. |
 | `SEARCH_AGENT_CACHE_FETCH_NEGATIVE_TTL` | `300` | TTL (seconds) for failed/empty fetches (SSRF block, 4xx, byte-cap, empty extract) so transient failures recover quickly. |
 | `SEARCH_AGENT_CACHE_SEARXNG_TTL` | `300` | TTL (seconds) for SearXNG result lists. Short by default because engine rankings shift quickly. |
+| `SEARCH_AGENT_CACHE_STAAN_TTL` | `300` | TTL (seconds) for Staan result lists. |
 | `SEARCH_AGENT_CACHE_PLANNER_TTL` | `21600` | TTL (seconds) for cached planner outputs. The cache key includes today's date (`YYYY-MM-DD`), so entries roll daily regardless of TTL. |
 
 ## Caching
@@ -131,6 +143,7 @@ Three pipeline stages are cached in Redis to avoid repeating deterministic work 
 |---|---|---|---|
 | Query planner | `planner:v1:sha256(normalized_query + context + YYYY-MM-DD)` | `CACHE_PLANNER_TTL` (6h) | not cached |
 | SearXNG search | `searxng:v1:sha256(normalized_query + searxng_url)` | `CACHE_SEARXNG_TTL` (5min) | not cached (empty results allowed to retry) |
+| Staan search | `staan:v1:sha256(normalized_query + staan_url + market + enrichment + char_cap)` | `CACHE_STAAN_TTL` (5min) | not cached (empty results allowed to retry) |
 | Page fetch (per URL) | `fetch:v1:sha256(url + max_chars)` | `CACHE_FETCH_TTL` (1h) | `CACHE_FETCH_NEGATIVE_TTL` (5min) |
 
 **Fail-open:** every cache operation is wrapped so that Redis errors or timeouts (300ms socket budget) degrade to a miss and the request continues unaffected. A dead or slow Redis will never break search.

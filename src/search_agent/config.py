@@ -18,7 +18,34 @@ class Settings(BaseSettings):
     llm_api_key: str = "not-needed"
     llm_model: str = "llama3"
 
+    # Search backend selection. "searxng" (default) or "staan".
+    search_provider: Literal["searxng", "staan"] = "searxng"
+
     searxng_url: str = "http://searxng:8080"
+
+    # Staan "Web for AI" provider (https://docs.staan.ai/docs/web-for-ai).
+    staan_url: str = "https://api.staan.ai"
+    staan_api_key: str = ""  # required when search_provider=staan (checked at startup)
+    staan_market: str = "en-us"
+    staan_timeout: int = 10  # docs recommend 8-10s with enrichment enabled
+    # Enrichment: "full_content" = full page body as markdown per result,
+    # "extra_snippets" = semantically scored chunks, "none" = snippets only.
+    staan_enrichment: Literal["full_content", "extra_snippets", "none"] = "full_content"
+    staan_max_snippets: int = 3  # extra_snippets mode only (1-10)
+    staan_min_score: float = 0.1  # extra_snippets mode only (0-1)
+    # Caps keeping the synthesizer prompt inside the LLM context window:
+    # per-result char cap on content, and how many (reranked) results keep
+    # content at all — the rest are snippet-only. The result cap is enforced
+    # globally across all planner queries (in search_multiple), so it bounds the
+    # whole prompt, not each query. Defaults match the fetch step's worst case
+    # (search_fetch_max_pages * search_fetch_max_chars).
+    staan_content_max_chars: int = 5000
+    staan_content_max_results: int = 5
+    # Hard cap on bytes read from a Staan response. Larger than the SearXNG cap
+    # because full_content enrichment returns entire page bodies per result, not
+    # just snippets; too small a cap would abort the read and silently drop the
+    # whole query's results.
+    staan_max_response_bytes: int = 10_000_000
 
     mcp_allowed_hosts: list[str] = ["search-agent:8001", "localhost:8001"]
 
@@ -89,6 +116,7 @@ class Settings(BaseSettings):
     cache_fetch_ttl: int = 3600
     cache_fetch_negative_ttl: int = 300
     cache_searxng_ttl: int = 300
+    cache_staan_ttl: int = 300
     cache_planner_ttl: int = 21600
 
 

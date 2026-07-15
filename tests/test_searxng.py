@@ -3,37 +3,40 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 
 from search_agent.models import RawSearchResult
-from search_agent.searxng import _is_valid_url, search, search_multiple
+from search_agent.providers.base import is_valid_url, search_multiple
+from search_agent.providers.searxng import SearxngProvider
 from tests.conftest import make_stream_mock
+
+provider = SearxngProvider()
 
 
 class TestIsValidUrl:
     def test_http_url(self):
-        assert _is_valid_url("http://example.com") is True
+        assert is_valid_url("http://example.com") is True
 
     def test_https_url(self):
-        assert _is_valid_url("https://example.com/path?q=1") is True
+        assert is_valid_url("https://example.com/path?q=1") is True
 
     def test_javascript_url(self):
-        assert _is_valid_url("javascript:alert(1)") is False
+        assert is_valid_url("javascript:alert(1)") is False
 
     def test_file_url(self):
-        assert _is_valid_url("file:///etc/passwd") is False
+        assert is_valid_url("file:///etc/passwd") is False
 
     def test_data_url(self):
-        assert _is_valid_url("data:text/html,<h1>hi</h1>") is False
+        assert is_valid_url("data:text/html,<h1>hi</h1>") is False
 
     def test_empty_string(self):
-        assert _is_valid_url("") is False
+        assert is_valid_url("") is False
 
     def test_no_scheme(self):
-        assert _is_valid_url("example.com") is False
+        assert is_valid_url("example.com") is False
 
     def test_scheme_only(self):
-        assert _is_valid_url("https://") is False
+        assert is_valid_url("https://") is False
 
     def test_ftp_url(self):
-        assert _is_valid_url("ftp://files.example.com") is False
+        assert is_valid_url("ftp://files.example.com") is False
 
 
 class TestRawSearchResultTruncation:
@@ -90,7 +93,7 @@ class TestSearXNGSearch:
             )
         )
 
-        results = await search(mock_client, "test query")
+        results = await provider.search(mock_client, "test query")
 
         assert len(results) == 2
         assert results[0].title == "Test Result"
@@ -102,14 +105,14 @@ class TestSearXNGSearch:
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.stream = MagicMock(return_value=make_stream_mock({"results": []}))
 
-        results = await search(mock_client, "empty query")
+        results = await provider.search(mock_client, "empty query")
         assert results == []
 
     async def test_search_handles_error(self):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.stream = MagicMock(side_effect=httpx.ConnectError("Connection failed"))
 
-        results = await search(mock_client, "failing query")
+        results = await provider.search(mock_client, "failing query")
         assert results == []
 
     async def test_search_filters_invalid_urls(self):
@@ -147,7 +150,7 @@ class TestSearXNGSearch:
             )
         )
 
-        results = await search(mock_client, "mixed urls")
+        results = await provider.search(mock_client, "mixed urls")
 
         assert len(results) == 2
         assert results[0].url == "https://example.com"
@@ -196,10 +199,33 @@ class TestSearXNGSearch:
             ]
         )
 
-        results = await search_multiple(mock_client, ["query1", "query2"])
+        results = await search_multiple(provider, mock_client, ["query1", "query2"])
 
         assert len(results) == 3
         urls = [r.url for r in results]
         assert "https://a.com" in urls
         assert "https://b.com" in urls
         assert "https://c.com" in urls
+
+    async def test_search_multiple_survives_one_failing_query(self):
+        # If one query raises unexpectedly, the others' results are still
+        # returned (gather uses return_exceptions=True) rather than the whole
+        # search failing.
+        class FlakyProvider:
+            name = "flaky"
+            content_result_cap = None
+
+            async def search(self, client, query):
+                if query == "boom":
+                    raise ValueError("provider blew up")
+                return [
+                    RawSearchResult(title="ok", url="https://ok.com", snippet="ok", engine="flaky")
+                ]
+
+            async def health(self, client):
+                return True
+
+        results = await search_multiple(FlakyProvider(), AsyncMock(), ["boom", "fine"])
+
+        assert len(results) == 1
+        assert results[0].url == "https://ok.com"
