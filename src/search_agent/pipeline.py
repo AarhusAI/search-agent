@@ -13,7 +13,8 @@ from search_agent.config import settings
 from search_agent.deps import PipelineDeps, get_http_client, get_model
 from search_agent.fetch import fetch_pages
 from search_agent.models import RawSearchResult, SearchResult
-from search_agent.searxng import search_multiple
+from search_agent.providers import get_provider
+from search_agent.providers.base import search_multiple
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def _is_simple_query(query: str) -> bool:
 
 
 async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchResult]:
-    """Steps 1+2: plan queries and execute SearXNG search."""
+    """Steps 1+2: plan queries and execute them against the search provider."""
     model = get_model()
     http_client = get_http_client()
     deps = PipelineDeps(http_client=http_client, model=model)
@@ -57,8 +58,16 @@ async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchR
         today_bucket = datetime.now(tz=tz).strftime("%Y-%m-%d")
         planner_key = cache.make_key("planner", query.strip().lower(), context, today_bucket)
         cached_plan = await cache.get_json(planner_key)
+        # Defend against a corrupted / poisoned cache entry: only trust a
+        # list-of-strings shape. Anything else would silently feed garbage
+        # (or attacker-chosen) values into SearXNG.
+        if cached_plan is not None and not (
+            isinstance(cached_plan, list) and all(isinstance(q, str) for q in cached_plan)
+        ):
+            logger.warning("Discarded malformed planner cache entry: %r", cached_plan)
+            cached_plan = None
         if cached_plan is not None:
-            search_queries = list(cached_plan)[: settings.search_max_queries]
+            search_queries = cached_plan[: settings.search_max_queries]
             logger.info(
                 "Query planner cache hit (%d queries): %s",
                 len(search_queries),
@@ -83,11 +92,14 @@ async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchR
             if search_queries:
                 await cache.set_json(planner_key, search_queries, ttl=settings.cache_planner_ttl)
 
-    # Step 2: Execute searches (no LLM, just HTTP → SearXNG)
+    # Step 2: Execute searches (no LLM, just HTTP → search backend)
+    provider = get_provider()
     search_start = time.monotonic()
-    raw_results = await search_multiple(http_client, search_queries)
+    raw_results = await search_multiple(provider, http_client, search_queries)
     search_time = time.monotonic() - search_start
-    logger.info("SearXNG returned %d results in %.1fs", len(raw_results), search_time)
+    logger.info(
+        "Search (%s) returned %d results in %.1fs", provider.name, len(raw_results), search_time
+    )
 
     return raw_results
 
@@ -147,6 +159,16 @@ async def _run_search_pipeline(query: str, context: str = "") -> SearchResult:
     result = await analyze_synthesizer.run(synth_prompt, deps=deps, model=model)
     logger.debug("Analyze+synthesize output: %r", result.output)
     analyze_synth_time = time.monotonic() - analyze_synth_start
+
+    # Drop sources the LLM invented: the model can be coaxed by adversarial
+    # snippet/content text into emitting attacker-chosen URLs that the UI
+    # would render as clickable citations. Keep only URLs that came from the
+    # raw result set.
+    allowed_urls = {r.url for r in raw_results}
+    dropped = [s.url for s in result.output.sources if s.url not in allowed_urls]
+    if dropped:
+        logger.warning("Dropped %d fabricated source URL(s): %s", len(dropped), dropped)
+    result.output.sources = [s for s in result.output.sources if s.url in allowed_urls]
 
     total_time = time.monotonic() - pipeline_start
     logger.info(
