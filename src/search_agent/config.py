@@ -35,10 +35,17 @@ class Settings(BaseSettings):
     staan_min_score: float = 0.1  # extra_snippets mode only (0-1)
     # Caps keeping the synthesizer prompt inside the LLM context window:
     # per-result char cap on content, and how many (reranked) results keep
-    # content at all — the rest are snippet-only. Defaults match the fetch
-    # step's worst case (search_fetch_max_pages * search_fetch_max_chars).
+    # content at all — the rest are snippet-only. The result cap is enforced
+    # globally across all planner queries (in search_multiple), so it bounds the
+    # whole prompt, not each query. Defaults match the fetch step's worst case
+    # (search_fetch_max_pages * search_fetch_max_chars).
     staan_content_max_chars: int = 5000
     staan_content_max_results: int = 5
+    # Hard cap on bytes read from a Staan response. Larger than the SearXNG cap
+    # because full_content enrichment returns entire page bodies per result, not
+    # just snippets; too small a cap would abort the read and silently drop the
+    # whole query's results.
+    staan_max_response_bytes: int = 10_000_000
 
     mcp_allowed_hosts: list[str] = ["search-agent:8001", "localhost:8001"]
 

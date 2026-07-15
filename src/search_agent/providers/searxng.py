@@ -14,6 +14,7 @@ class SearxngProvider:
     """Search backend backed by a self-hosted SearXNG instance."""
 
     name = "searxng"
+    content_result_cap = None  # SearXNG never populates content from search
 
     async def search(self, client: httpx.AsyncClient, query: str) -> list[RawSearchResult]:
         """Execute a single search query against SearXNG and return structured results."""

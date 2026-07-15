@@ -79,7 +79,10 @@ async def health(deep: bool = False):
     provider = get_provider()
     try:
         healthy = await provider.health(get_http_client())
-    except RuntimeError:
+    except Exception:
+        # Never let the health endpoint 500 — an uninitialized client
+        # (RuntimeError) or a provider that leaks an unexpected error should
+        # both report "degraded", not crash the probe.
         logger.exception("Deep health check failed")
         healthy = False
     if healthy:

@@ -5,6 +5,7 @@ import pytest
 
 from search_agent.cache import InMemoryBackend, set_backend_for_testing
 from search_agent.config import settings
+from search_agent.providers.base import search_multiple
 from search_agent.providers.staan import StaanProvider, _build_params
 from tests.conftest import make_stream_mock
 
@@ -111,7 +112,10 @@ class TestStaanSearch:
 
         assert results[0].content == "X" * 10
 
-    async def test_content_stripped_beyond_max_results(self, monkeypatch):
+    async def test_search_keeps_content_for_all_results(self, monkeypatch):
+        # provider.search itself no longer strips content; the cap is applied
+        # globally in search_multiple so a single query caches every result's
+        # content regardless of the cap.
         monkeypatch.setattr(settings, "staan_content_max_results", 2)
         items = [full_result(url=f"https://example.com/{i}") for i in range(4)]
         mock_client = AsyncMock(spec=httpx.AsyncClient)
@@ -120,10 +124,29 @@ class TestStaanSearch:
         results = await provider.search(mock_client, "q")
 
         assert len(results) == 4
+        assert all(r.content is not None for r in results)
+
+    async def test_content_capped_globally_across_queries(self, monkeypatch):
+        # search_multiple enforces content_result_cap after merging/deduping all
+        # queries, so N queries can't stack up more than the cap's worth — even
+        # though each query on its own returns cap-worth of content.
+        monkeypatch.setattr(settings, "staan_content_max_results", 2)
+        bodies = [
+            make_staan_body([full_result(url=f"https://q1.example.com/{i}") for i in range(3)]),
+            make_staan_body([full_result(url=f"https://q2.example.com/{i}") for i in range(3)]),
+        ]
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.stream = MagicMock(side_effect=[make_stream_mock(b) for b in bodies])
+
+        results = await search_multiple(provider, mock_client, ["q1", "q2"])
+
+        assert len(results) == 6  # 3 + 3 distinct URLs, none deduped
+        with_content = [r for r in results if r.content is not None]
+        assert len(with_content) == 2  # capped globally, not 2-per-query
+        # The earliest (most relevant) results keep content.
         assert results[0].content is not None
         assert results[1].content is not None
-        assert results[2].content is None
-        assert results[3].content is None
+        assert all(r.content is None for r in results[2:])
 
     async def test_filters_invalid_urls(self):
         items = [

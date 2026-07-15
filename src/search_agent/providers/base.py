@@ -20,6 +20,14 @@ class SearchProvider(Protocol):
 
     name: str
 
+    # Max results allowed to carry ``content`` into the synthesizer prompt, or
+    # None for no cap. Enforced globally by ``search_multiple`` *after* the
+    # per-query results are merged and deduplicated — a per-query cap would let
+    # N queries stack up to N times the intended content, overflowing the LLM
+    # context window. Providers that never populate content from search (e.g.
+    # SearXNG) leave this None.
+    content_result_cap: int | None
+
     async def search(self, client: httpx.AsyncClient, query: str) -> list[RawSearchResult]: ...
 
     async def health(self, client: httpx.AsyncClient) -> bool: ...
@@ -41,10 +49,16 @@ async def read_capped_json(response: httpx.Response, max_bytes: int) -> dict | N
             return None
         chunks.append(chunk)
     try:
-        return json.loads(b"".join(chunks))
+        loaded = json.loads(b"".join(chunks))
     except json.JSONDecodeError:
         logger.warning("Search backend returned non-JSON body")
         return None
+    if not isinstance(loaded, dict):
+        # A JSON list/scalar would make ``data.get(...)`` in the callers raise
+        # AttributeError, which their ``except httpx.HTTPError`` wouldn't catch.
+        logger.warning("Search backend returned non-object JSON body")
+        return None
+    return loaded
 
 
 def is_valid_url(url: str) -> bool:
@@ -63,7 +77,12 @@ def normalize_query(query: str) -> str:
 async def search_multiple(
     provider: SearchProvider, client: httpx.AsyncClient, queries: list[str]
 ) -> list[RawSearchResult]:
-    """Execute multiple queries concurrently and deduplicate results by URL."""
+    """Execute multiple queries concurrently and deduplicate results by URL.
+
+    Content-bearing results are then capped globally (see
+    ``SearchProvider.content_result_cap``) so multiple queries can't stack up
+    more enriched content than the synthesizer's context window can hold.
+    """
     results_lists = await asyncio.gather(*(provider.search(client, q) for q in queries))
 
     all_results: list[RawSearchResult] = []
@@ -73,5 +92,14 @@ async def search_multiple(
             if r.url not in seen_urls:
                 seen_urls.add(r.url)
                 all_results.append(r)
+
+    # Enforce the content cap across all queries. Results keep their search
+    # order (each query's backend-reranked results, first query first), so the
+    # earliest — most relevant — results retain content; the rest fall back to
+    # snippet-only.
+    cap = provider.content_result_cap
+    if cap is not None:
+        for r in all_results[cap:]:
+            r.content = None
 
     return all_results

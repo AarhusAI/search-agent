@@ -109,7 +109,8 @@ All environment variables use the `SEARCH_AGENT_` prefix (via pydantic-settings)
 | `SEARCH_AGENT_STAAN_MAX_SNIPPETS` | `3` | Max chunks per result (`extra_snippets` mode only, 1–10) |
 | `SEARCH_AGENT_STAAN_MIN_SCORE` | `0.1` | Min chunk relevance (`extra_snippets` mode only, 0–1) |
 | `SEARCH_AGENT_STAAN_CONTENT_MAX_CHARS` | `5000` | Per-result cap on enrichment text mapped into `content` |
-| `SEARCH_AGENT_STAAN_CONTENT_MAX_RESULTS` | `5` | Only the top N (reranked) results keep `content`; the rest stay snippet-only. Together with the char cap this keeps the synthesizer prompt inside the LLM context window. |
+| `SEARCH_AGENT_STAAN_CONTENT_MAX_RESULTS` | `5` | Only the top N (reranked) results keep `content`; the rest stay snippet-only. Enforced globally across all planner queries, so it bounds the whole synthesizer prompt (not each query). Together with the char cap this keeps the prompt inside the LLM context window. |
+| `SEARCH_AGENT_STAAN_MAX_RESPONSE_BYTES` | `10000000` | Max bytes read from a Staan response before the read is aborted. Larger than the SearXNG cap because `full_content` returns whole page bodies per result. |
 | `SEARCH_AGENT_SEARCH_PIPELINE_TIMEOUT` | `90` | Overall pipeline timeout (seconds) |
 | `SEARCH_AGENT_DATETIME_TIMEZONE` | `UTC` | Timezone for date/time in query planner prompts |
 | `SEARCH_AGENT_DATETIME_FORMAT` | `%A, %B %-d, %Y, %H:%M %Z` | Date format string |
@@ -142,7 +143,7 @@ Three pipeline stages are cached in Redis to avoid repeating deterministic work 
 |---|---|---|---|
 | Query planner | `planner:v1:sha256(normalized_query + context + YYYY-MM-DD)` | `CACHE_PLANNER_TTL` (6h) | not cached |
 | SearXNG search | `searxng:v1:sha256(normalized_query + searxng_url)` | `CACHE_SEARXNG_TTL` (5min) | not cached (empty results allowed to retry) |
-| Staan search | `staan:v1:sha256(normalized_query + staan_url + market + enrichment + caps)` | `CACHE_STAAN_TTL` (5min) | not cached (empty results allowed to retry) |
+| Staan search | `staan:v1:sha256(normalized_query + staan_url + market + enrichment + char_cap)` | `CACHE_STAAN_TTL` (5min) | not cached (empty results allowed to retry) |
 | Page fetch (per URL) | `fetch:v1:sha256(url + max_chars)` | `CACHE_FETCH_TTL` (1h) | `CACHE_FETCH_NEGATIVE_TTL` (5min) |
 
 **Fail-open:** every cache operation is wrapped so that Redis errors or timeouts (300ms socket budget) degrade to a miss and the request continues unaffected. A dead or slow Redis will never break search.

@@ -9,6 +9,9 @@ class RawSearchResult(BaseModel):
     snippet: str
     engine: str
     content: str | None = None
+    # Advisory recency signal (set by providers that report it, e.g. Staan).
+    # Passed through to the synthesizer in the results JSON; not all providers
+    # populate it.
     published_date: str | None = None
 
     @field_validator("title")

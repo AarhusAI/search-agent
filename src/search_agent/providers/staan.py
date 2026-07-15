@@ -64,10 +64,17 @@ class StaanProvider:
 
     name = "staan"
 
+    @property
+    def content_result_cap(self) -> int:
+        # Enforced globally in search_multiple across all queries, not per query.
+        return settings.staan_content_max_results
+
     async def search(self, client: httpx.AsyncClient, query: str) -> list[RawSearchResult]:
         """Execute a single search query against Staan and return structured results."""
-        # Every knob that changes the response payload is part of the key —
-        # except the API key, which is a secret and doesn't affect the shape.
+        # Every knob that changes the cached payload is part of the key — except
+        # the API key (a secret that doesn't affect the shape) and
+        # staan_content_max_results (applied post-cache in search_multiple, so a
+        # single query caches content for all results regardless of it).
         cache_key = cache.make_key(
             self.name,
             normalize_query(query),
@@ -77,7 +84,6 @@ class StaanProvider:
             settings.staan_max_snippets,
             settings.staan_min_score,
             settings.staan_content_max_chars,
-            settings.staan_content_max_results,
         )
         cached = await cache.get_json(cache_key)
         if cached is not None:
@@ -93,7 +99,7 @@ class StaanProvider:
                 timeout=settings.staan_timeout,
             ) as response:
                 response.raise_for_status()
-                data = await read_capped_json(response, settings.searxng_max_response_bytes)
+                data = await read_capped_json(response, settings.staan_max_response_bytes)
         except httpx.HTTPError:
             # Don't log params or headers here — the Authorization header
             # carries the API key.
@@ -107,12 +113,9 @@ class StaanProvider:
 
         results = [r for item in raw_results if (r := _to_result(item)) is not None]
 
-        # Only the top N (Staan reranks when enrichment is on) keep content;
-        # the rest stay snippet-only so the synthesizer prompt fits the LLM
-        # context window (deployment target is a 32k-context model).
-        for result in results[settings.staan_content_max_results :]:
-            result.content = None
-
+        # NB: content is capped globally in search_multiple (across all queries),
+        # not here — so the cache stores content for every result and the cap can
+        # be retuned without invalidating cached entries.
         if results:
             await cache.set_json(
                 cache_key,
