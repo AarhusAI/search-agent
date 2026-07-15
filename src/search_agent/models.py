@@ -2,13 +2,14 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class RawSearchResult(BaseModel):
-    """A single result from SearXNG."""
+    """A single result from the configured search provider."""
 
     title: str
     url: str
     snippet: str
     engine: str
     content: str | None = None
+    published_date: str | None = None
 
     @field_validator("title")
     @classmethod

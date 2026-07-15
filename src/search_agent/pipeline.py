@@ -13,7 +13,8 @@ from search_agent.config import settings
 from search_agent.deps import PipelineDeps, get_http_client, get_model
 from search_agent.fetch import fetch_pages
 from search_agent.models import RawSearchResult, SearchResult
-from search_agent.searxng import search_multiple
+from search_agent.providers import get_provider
+from search_agent.providers.base import search_multiple
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ def _is_simple_query(query: str) -> bool:
 
 
 async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchResult]:
-    """Steps 1+2: plan queries and execute SearXNG search."""
+    """Steps 1+2: plan queries and execute them against the search provider."""
     model = get_model()
     http_client = get_http_client()
     deps = PipelineDeps(http_client=http_client, model=model)
@@ -91,11 +92,14 @@ async def _run_plan_and_search(query: str, context: str = "") -> list[RawSearchR
             if search_queries:
                 await cache.set_json(planner_key, search_queries, ttl=settings.cache_planner_ttl)
 
-    # Step 2: Execute searches (no LLM, just HTTP → SearXNG)
+    # Step 2: Execute searches (no LLM, just HTTP → search backend)
+    provider = get_provider()
     search_start = time.monotonic()
-    raw_results = await search_multiple(http_client, search_queries)
+    raw_results = await search_multiple(provider, http_client, search_queries)
     search_time = time.monotonic() - search_start
-    logger.info("SearXNG returned %d results in %.1fs", len(raw_results), search_time)
+    logger.info(
+        "Search (%s) returned %d results in %.1fs", provider.name, len(raw_results), search_time
+    )
 
     return raw_results
 

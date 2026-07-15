@@ -12,8 +12,10 @@ from search_agent.cache import (
     set_backend_for_testing,
 )
 from search_agent.fetch import _fetch_one
-from search_agent.searxng import search
+from search_agent.providers.searxng import SearxngProvider
 from tests.conftest import make_stream_mock
+
+search = SearxngProvider().search
 
 
 @pytest.fixture

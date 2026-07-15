@@ -1,7 +1,6 @@
 import logging
 from contextlib import asynccontextmanager
 
-import httpx
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -13,6 +12,7 @@ from search_agent.deps import close_shared_clients, get_http_client, init_shared
 from search_agent.mcp_server import mcp
 from search_agent.models import SearchRequest, SearchResult
 from search_agent.pipeline import run_search_pipeline
+from search_agent.providers import get_provider, init_provider
 
 _log_level = logging.DEBUG if settings.debug else logging.INFO
 logging.basicConfig(
@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     init_shared_clients()
     init_cache()
+    init_provider()
     async with mcp.session_manager.run():
         yield
     await close_cache()
@@ -75,17 +76,18 @@ async def health(deep: bool = False):
     if not deep:
         return {"status": "ok"}
 
+    provider = get_provider()
     try:
-        client = get_http_client()
-        response = await client.get(f"{settings.searxng_url}/healthz", timeout=5.0)
-        response.raise_for_status()
-        return {"status": "ok", "searxng": "reachable"}
-    except (httpx.HTTPError, RuntimeError):
+        healthy = await provider.health(get_http_client())
+    except RuntimeError:
         logger.exception("Deep health check failed")
-        return JSONResponse(
-            status_code=503,
-            content={"status": "degraded", "searxng": "unreachable"},
-        )
+        healthy = False
+    if healthy:
+        return {"status": "ok", "provider": provider.name, "search_backend": "reachable"}
+    return JSONResponse(
+        status_code=503,
+        content={"status": "degraded", "provider": provider.name, "search_backend": "unreachable"},
+    )
 
 
 @app.post("/api/v1/search", response_model=SearchResult)
