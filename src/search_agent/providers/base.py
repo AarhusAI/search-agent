@@ -83,11 +83,19 @@ async def search_multiple(
     ``SearchProvider.content_result_cap``) so multiple queries can't stack up
     more enriched content than the synthesizer's context window can hold.
     """
-    results_lists = await asyncio.gather(*(provider.search(client, q) for q in queries))
+    results_lists = await asyncio.gather(
+        *(provider.search(client, q) for q in queries), return_exceptions=True
+    )
 
     all_results: list[RawSearchResult] = []
     seen_urls: set[str] = set()
     for results in results_lists:
+        # ``return_exceptions=True`` so one query raising (e.g. a provider bug
+        # on a single malformed response) doesn't discard the other queries'
+        # results — degrade to what succeeded instead of failing the search.
+        if isinstance(results, BaseException):
+            logger.warning("A search query failed and was skipped", exc_info=results)
+            continue
         for r in results:
             if r.url not in seen_urls:
                 seen_urls.add(r.url)

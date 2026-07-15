@@ -206,3 +206,26 @@ class TestSearXNGSearch:
         assert "https://a.com" in urls
         assert "https://b.com" in urls
         assert "https://c.com" in urls
+
+    async def test_search_multiple_survives_one_failing_query(self):
+        # If one query raises unexpectedly, the others' results are still
+        # returned (gather uses return_exceptions=True) rather than the whole
+        # search failing.
+        class FlakyProvider:
+            name = "flaky"
+            content_result_cap = None
+
+            async def search(self, client, query):
+                if query == "boom":
+                    raise ValueError("provider blew up")
+                return [
+                    RawSearchResult(title="ok", url="https://ok.com", snippet="ok", engine="flaky")
+                ]
+
+            async def health(self, client):
+                return True
+
+        results = await search_multiple(FlakyProvider(), AsyncMock(), ["boom", "fine"])
+
+        assert len(results) == 1
+        assert results[0].url == "https://ok.com"

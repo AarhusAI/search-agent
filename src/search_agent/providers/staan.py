@@ -1,6 +1,7 @@
 import logging
 
 import httpx
+from pydantic import ValidationError
 
 from search_agent import cache
 from search_agent.config import settings
@@ -40,18 +41,31 @@ def _extract_content(item: dict) -> str | None:
 
 
 def _to_result(item: dict) -> RawSearchResult | None:
-    title = item.get("title", "")
-    url = item.get("url", "")
+    # Coerce with ``or ""`` (not ``get(..., "")``) so an explicit JSON null —
+    # ``get`` only falls back on a *missing* key — becomes an empty string
+    # rather than None, which the required ``str`` fields would reject.
+    title = item.get("title") or ""
+    url = item.get("url") or ""
     if not (title and url and is_valid_url(url)):
         return None
-    return RawSearchResult(
-        title=title,
-        url=url,
-        snippet=item.get("snippet", ""),
-        engine="staan",
-        content=_extract_content(item),
-        published_date=item.get("published_date"),
-    )
+    # Advisory only; keep it only if the peer actually sent a string (some
+    # APIs return an epoch int, which the ``str | None`` field would reject).
+    published = item.get("published_date")
+    if not isinstance(published, str):
+        published = None
+    try:
+        return RawSearchResult(
+            title=title,
+            url=url,
+            snippet=item.get("snippet") or "",
+            engine="staan",
+            content=_extract_content(item),
+            published_date=published,
+        )
+    except ValidationError:
+        # A single malformed item must not sink the whole query's results.
+        logger.warning("Skipping malformed Staan result for url=%r", url)
+        return None
 
 
 class StaanProvider:

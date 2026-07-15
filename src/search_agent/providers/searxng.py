@@ -1,6 +1,7 @@
 import logging
 
 import httpx
+from pydantic import ValidationError
 
 from search_agent import cache
 from search_agent.config import settings
@@ -52,14 +53,22 @@ class SearxngProvider:
 
         results = []
         for item in raw_results:
-            title = item.get("title", "")
-            url = item.get("url", "")
-            snippet = item.get("content", "")
-            engine = item.get("engine", "unknown")
-            if title and url and is_valid_url(url):
+            # ``or ""`` (not ``get(..., "")``) so an explicit JSON null becomes
+            # an empty string instead of None, which the required str fields
+            # would reject.
+            title = item.get("title") or ""
+            url = item.get("url") or ""
+            snippet = item.get("content") or ""
+            engine = item.get("engine") or "unknown"
+            if not (title and url and is_valid_url(url)):
+                continue
+            try:
                 results.append(
                     RawSearchResult(title=title, url=url, snippet=snippet, engine=engine)
                 )
+            except ValidationError:
+                # A single malformed item must not sink the whole query's results.
+                logger.warning("Skipping malformed SearXNG result for url=%r", url)
 
         if results:
             await cache.set_json(

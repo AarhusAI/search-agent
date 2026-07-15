@@ -163,6 +163,45 @@ class TestStaanSearch:
         assert len(results) == 1
         assert results[0].url == "https://example.com/vector-dbs"
 
+    async def test_null_snippet_coerced_to_empty(self):
+        # An explicit JSON null snippet must not crash the query — the required
+        # str field would reject None, so it's coerced to "".
+        item = full_result(snippet=None)
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.stream = MagicMock(return_value=make_stream_mock(make_staan_body([item])))
+
+        results = await provider.search(mock_client, "q")
+
+        assert len(results) == 1
+        assert results[0].snippet == ""
+
+    async def test_non_string_published_date_dropped(self):
+        # Some APIs return an epoch int; the str | None field would reject it,
+        # so a non-string published_date is dropped, not fatal.
+        item = full_result(published_date=1699999999)
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.stream = MagicMock(return_value=make_stream_mock(make_staan_body([item])))
+
+        results = await provider.search(mock_client, "q")
+
+        assert len(results) == 1
+        assert results[0].published_date is None
+
+    async def test_malformed_item_skipped_others_kept(self):
+        # A single unparseable item (numeric title passes the truthiness guard
+        # but fails the str field) is skipped; valid siblings still returned.
+        items = [
+            full_result(url="https://good.example.com"),
+            {"title": 123, "url": "https://bad.example.com", "snippet": "x"},
+        ]
+        mock_client = AsyncMock(spec=httpx.AsyncClient)
+        mock_client.stream = MagicMock(return_value=make_stream_mock(make_staan_body(items)))
+
+        results = await provider.search(mock_client, "q")
+
+        assert len(results) == 1
+        assert results[0].url == "https://good.example.com"
+
     async def test_http_error_returns_empty(self):
         mock_client = AsyncMock(spec=httpx.AsyncClient)
         mock_client.stream = MagicMock(side_effect=httpx.ConnectError("Connection failed"))
