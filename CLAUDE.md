@@ -41,7 +41,7 @@ docker compose run --rm --no-deps agent uv run ruff format src tests     # Forma
 
 ### Key Modules
 
-- `main.py` — FastAPI app with `/health`, `/api/v1/search` endpoints. Mounts MCP server at `/`. Wraps the handler in `cache.bypass()` when `SearchRequest.no_cache=True`.
+- `main.py` — FastAPI app with `/health`, `/api/v1/search` endpoints. Mounts the MCP ASGI app at `/`, which serves the Streamable HTTP transport at `/mcp`. The mount must stay at module scope: `mcp.session_manager` (used by the lifespan) raises `RuntimeError` until `streamable_http_app()` has been called. Wraps the handler in `cache.bypass()` when `SearchRequest.no_cache=True`.
 - `pipeline.py` — Orchestrates the 3 stages with timeout handling (default 90s). Planner output is cached per (normalized query, context, `YYYY-MM-DD`) — the date bucket is in the key because the prompt includes `datetime.now()`, so a TTL crossing midnight would otherwise leak a stale date.
 - `config.py` — `Settings` class using pydantic-settings. All env vars use `SEARCH_AGENT_` prefix.
 - `deps.py` — Shared httpx client and Pydantic AI model, initialized at app startup via lifespan.
@@ -51,7 +51,7 @@ docker compose run --rm --no-deps agent uv run ruff format src tests     # Forma
   - `providers/staan.py` — `StaanProvider` for the Staan "Web for AI" API (Bearer auth, `GET /v2/search/web`, results under `web.results`). Enrichment via `staan_enrichment`: `full_content` (markdown page body) or `extra_snippets` (scored chunks) → `RawSearchResult.content`, capped per result (`staan_content_max_chars`). The count cap (`staan_content_max_results` top reranked results keep content) is applied globally in `search_multiple` across all queries — not inside `search()` — so the cached payload is cap-independent and the synthesizer prompt stays bounded regardless of query count. Response read is capped at `staan_max_response_bytes` (larger than SearXNG's since `full_content` returns whole page bodies). Never log its request headers — they carry the API key.
 - `fetch.py` — Optional per-result page fetch with trafilatura extraction. Concurrent, with content-type / byte-size / SSRF guards. Skips results whose `content` is already populated (e.g. by the Staan provider) — only content-less results consume `search_fetch_max_pages` slots. `trafilatura.extract` is run via `asyncio.to_thread` because it's sync. `_fetch_one` wraps `_fetch_one_uncached` with a cache (positive TTL for extracted text, shorter negative TTL for `None`/failed fetches).
 - `models.py` — `SearchRequest` (with optional `no_cache` flag), `RawSearchResult` (with optional `content` field populated by fetch), `SearchResult`, `Source`.
-- `mcp_server.py` — FastMCP server exposing `search_web` tool. Uses `run_search_pipeline_raw` (steps 1+2 only, no LLM synthesis) so callers get raw results for their own citation handling (e.g. Open WebUI). Does not expose `no_cache`; MCP callers always hit the shared cache.
+- `mcp_server.py` — MCP server (`MCPServer` from the mcp 2.x SDK) exposing `search_web` tool. Uses `run_search_pipeline_raw` (steps 1+2 only, no LLM synthesis) so callers get raw results for their own citation handling (e.g. Open WebUI). Does not expose `no_cache`; MCP callers always hit the shared cache. `streamable_http_app()` builds the ASGI app that `main.py` mounts — mcp 2.x takes `transport_security` (the `mcp_allowed_hosts` DNS-rebinding allowlist) on the transport factory rather than the server constructor, so it is applied there.
 - `agents/` — Pydantic AI agent definitions. `analyze_synthesizer.py` is the combined analyze+synthesize agent.
 
 ### Data Flow
@@ -71,7 +71,7 @@ All env vars use `SEARCH_AGENT_` prefix (via pydantic-settings). Key settings:
 - `SEARCH_AGENT_STAAN_API_KEY` — **required when provider is `staan`** (startup fails without it; never logged). Plus `SEARCH_AGENT_STAAN_URL` (`https://api.staan.ai`), `SEARCH_AGENT_STAAN_MARKET` (`en-us`), `SEARCH_AGENT_STAAN_TIMEOUT` (10s), `SEARCH_AGENT_STAAN_ENRICHMENT` (`full_content` | `extra_snippets` | `none`), `SEARCH_AGENT_STAAN_MAX_SNIPPETS` (3), `SEARCH_AGENT_STAAN_MIN_SCORE` (0.1), `SEARCH_AGENT_STAAN_CONTENT_MAX_CHARS` (5000), `SEARCH_AGENT_STAAN_CONTENT_MAX_RESULTS` (5, top reranked results that keep content, enforced globally across all planner queries — with the char cap this bounds the synthesizer prompt for 32k-context models), `SEARCH_AGENT_STAAN_MAX_RESPONSE_BYTES` (10_000_000)
 - `SEARCH_AGENT_SEARXNG_TIMEOUT` (15s), `SEARCH_AGENT_SEARCH_PIPELINE_TIMEOUT` (90s), `SEARCH_AGENT_LLM_TIMEOUT` (60s)
 - `SEARCH_AGENT_DATETIME_TIMEZONE` (default: `UTC`), `SEARCH_AGENT_DATETIME_FORMAT` — used in query planner prompts
-- `SEARCH_AGENT_MCP_ALLOWED_HOSTS` (default: `["search-agent:8001","localhost:8001"]`)
+- `SEARCH_AGENT_MCP_ALLOWED_HOSTS` (default: `["search-agent:8001","localhost:8001"]`) — Host header allowlist for the MCP transport; a mismatched `Host` gets a 421
 - `SEARCH_AGENT_SEARCH_SKIP_PLANNER_FOR_SIMPLE_QUERIES` (default: `true`)
 - `SEARCH_AGENT_SEARCH_MAX_QUERIES` (default: `3`) — cap planner output
 - `SEARCH_AGENT_SEARCH_MAX_RESULTS` (default: `15`) — cap results reaching the synthesizer
