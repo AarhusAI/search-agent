@@ -1,18 +1,26 @@
 import json
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 
 from search_agent.config import settings
 from search_agent.models import RawSearchResult
 from search_agent.pipeline import run_search_pipeline_raw
 
-mcp = FastMCP(
-    "search-agent",
-    transport_security=TransportSecuritySettings(
-        allowed_hosts=settings.mcp_allowed_hosts,
-    ),
-)
+mcp = MCPServer("search-agent")
+
+
+def streamable_http_app():
+    """Build the MCP Streamable HTTP ASGI app (served at ``/mcp``).
+
+    mcp 2.x moved ``transport_security`` off the server constructor onto the
+    transport factory, so the DNS-rebinding host allowlist is applied here.
+    """
+    return mcp.streamable_http_app(
+        transport_security=TransportSecuritySettings(
+            allowed_hosts=settings.mcp_allowed_hosts,
+        ),
+    )
 
 
 @mcp.tool()

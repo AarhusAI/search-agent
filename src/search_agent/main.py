@@ -9,7 +9,7 @@ from search_agent import cache
 from search_agent.cache import close_cache, init_cache
 from search_agent.config import settings
 from search_agent.deps import close_shared_clients, get_http_client, init_shared_clients
-from search_agent.mcp_server import mcp
+from search_agent.mcp_server import mcp, streamable_http_app
 from search_agent.models import SearchRequest, SearchResult
 from search_agent.pipeline import run_search_pipeline
 from search_agent.providers import get_provider, init_provider
@@ -125,4 +125,4 @@ async def search(request: SearchRequest) -> SearchResult:
         )
 
 
-app.mount("/", mcp.streamable_http_app())
+app.mount("/", streamable_http_app())

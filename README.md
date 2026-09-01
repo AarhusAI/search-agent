@@ -35,7 +35,7 @@ See the [Caching](#caching) section below for fail-open semantics, bypass behavi
 |---|---|---|
 | `/health` | GET | Health check. Pass `?deep=true` to also verify SearXNG connectivity. |
 | `/api/v1/search` | POST | Run the full search pipeline. Accepts `{"query": "...", "context": "...", "no_cache": false}`. Set `no_cache: true` to bypass Redis and force a fresh run. |
-| `/` | - | MCP Streamable HTTP transport. Exposes `search_web` tool (steps 1+2 only, no LLM synthesis). |
+| `/mcp` | POST | MCP Streamable HTTP transport (the MCP app is mounted at `/`, the transport itself is served at `/mcp`). Exposes `search_web` tool (steps 1+2 only, no LLM synthesis). |
 
 ## Prerequisites
 
@@ -114,7 +114,7 @@ All environment variables use the `SEARCH_AGENT_` prefix (via pydantic-settings)
 | `SEARCH_AGENT_SEARCH_PIPELINE_TIMEOUT` | `90` | Overall pipeline timeout (seconds) |
 | `SEARCH_AGENT_DATETIME_TIMEZONE` | `UTC` | Timezone for date/time in query planner prompts |
 | `SEARCH_AGENT_DATETIME_FORMAT` | `%A, %B %-d, %Y, %H:%M %Z` | Date format string |
-| `SEARCH_AGENT_MCP_ALLOWED_HOSTS` | `["search-agent:8001","localhost:8001"]` | Hosts allowed for MCP transport |
+| `SEARCH_AGENT_MCP_ALLOWED_HOSTS` | `["search-agent:8001","localhost:8001"]` | `Host` header allowlist for the MCP transport (DNS-rebinding protection); a mismatch returns 421 |
 | `SEARCH_AGENT_SEARCH_SKIP_PLANNER_FOR_SIMPLE_QUERIES` | `true` | Skip query planner for simple queries |
 | `SEARCH_AGENT_SEARCH_MAX_QUERIES` | `3` | Cap on how many queries the planner's output is truncated to |
 | `SEARCH_AGENT_SEARCH_MAX_RESULTS` | `15` | Max deduplicated results passed to the synthesizer / returned via MCP |
