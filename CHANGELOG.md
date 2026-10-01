@@ -7,6 +7,10 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 ## [Unreleased]
 
 - Added GitHub Actions for linting (ruff, markdown, YAML), tests and changelog checks.
+- `/app/.venv/bin` is on the image `PATH`, so `ruff`, `pytest` and `basedpyright` run without `uv run`.
+- `basedpyright` type checking: errors fixed, existing warnings accepted in `.basedpyright/baseline.json` so only new
+  ones fail CI.
+- Markdown and YAML reformatted to pass markdownlint and prettier.
 
 ## [0.0.5] - 2026-09-01
 
