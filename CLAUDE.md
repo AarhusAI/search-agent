@@ -14,10 +14,8 @@ All Python commands run via docker compose (never directly on host). The Taskfil
 task up                                  # Start all services (required before other task commands)
 task test                                # Run tests (uses exec)
 task test -- tests/test_pipeline.py::TestSearchPipeline::test_pipeline_runs_all_stages  # Single test
-task lint:check                          # Lint (src/ only)
-task lint:format                         # Format (src/ only)
-task lint                                # Lint + format check
-task coding-standards:apply              # Lint fix + format
+task lint                                # ruff check + format --check (src + tests, same as CI)
+task lint:fix                            # ruff check --fix + format
 task build:image                         # Build and push prod image to ghcr.io/aarhusai/search-agent
 task build:image TAG=v1.0.0              # With custom tag
 ```
@@ -97,8 +95,7 @@ pytest-asyncio is configured with `asyncio_mode = "auto"` so async tests don't n
 
 ## Docker
 
-Multi-stage Dockerfile with `dev` and `prod` targets. docker-compose defines three services: `agent` (container port 8001), `searxng` (container port 8080), and `redis` (container port 6379, `redis:7-alpine` with 256MB `maxmemory` + `allkeys-lru`, data persisted at `.docker/data/redis/`). All three have health checks — ports are not host-mapped (random host ports unless overridden). Services connect via a bridge `app` network; `agent` is also on an external `frontend` network. Source is volume-mounted for live reload in dev. Build target is controlled by `ENV` variable (defaults to `dev`). Note: `Taskfile.yml` currently sets `SERVICE: search-agent`, which no longer matches the compose service name `agent` — task commands that use `docker compose exec {{.SERVICE}}` will fail until that var is updated. Use `docker compose exec agent …` directly in the meantime.
-
+Multi-stage Dockerfile with `dev` and `prod` targets. docker-compose defines three services: `agent` (container port 8001), `searxng` (container port 8080), and `redis` (container port 6379, `redis:7-alpine` with 256MB `maxmemory` + `allkeys-lru`, data persisted at `.docker/data/redis/`). All three have health checks — ports are not host-mapped (random host ports unless overridden). Services connect via a bridge `app` network; `agent` is also on an external `frontend` network. Source is volume-mounted for live reload in dev. Build target is controlled by `ENV` variable (defaults to `dev`).
 ## Important rules
 
 - **Never read `.env` files** — they contain secrets. Use `docker-compose.yml` or `config.py` to understand env vars.
