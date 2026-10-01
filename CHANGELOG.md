@@ -12,8 +12,8 @@ The format is based on [Keep a Changelog], and this project adheres to [Semantic
 
 ### Changed
 
-- Upgraded to the mcp 2.x SDK (`MCPServer`); the `mcp_allowed_hosts` allowlist is now applied on
-  the Streamable HTTP transport factory.
+- Upgraded to the mcp 2.x SDK (`MCPServer`); the `mcp_allowed_hosts` allowlist is now applied on the Streamable HTTP
+  transport factory.
 - Capped dependency major versions.
 - Base image switched to the official Python image.
 
@@ -25,11 +25,11 @@ No changes; re-tag of 0.0.3.
 
 ### Added
 
-- Pluggable search providers behind a `SearchProvider` protocol, selected with
-  `SEARCH_AGENT_SEARCH_PROVIDER`: `searxng` (default) or the new `staan` (Staan "Web for AI")
-  backend, which can return full page content or scored snippets per result.
-- Staan content cap (`SEARCH_AGENT_STAAN_CONTENT_MAX_RESULTS`) enforced globally across all planner
-  queries so the synthesizer prompt stays bounded.
+- Pluggable search providers behind a `SearchProvider` protocol, selected with `SEARCH_AGENT_SEARCH_PROVIDER`: `searxng`
+  (default) or the new `staan` (Staan "Web for AI") backend, which can return full page content or scored snippets per
+  result.
+- Staan content cap (`SEARCH_AGENT_STAAN_CONTENT_MAX_RESULTS`) enforced globally across all planner queries so the
+  synthesizer prompt stays bounded.
 - arm64 image support.
 
 ### Security
@@ -49,8 +49,8 @@ No changes; re-tag of 0.0.1.
 
 ### Added
 
-- Initial implementation: FastAPI service with a 3-stage search pipeline (query planner, SearXNG
-  search executor, combined analyze + synthesize agent) and `/health`, `/api/v1/search` endpoints.
+- Initial implementation: FastAPI service with a 3-stage search pipeline (query planner, SearXNG search executor,
+  combined analyze + synthesize agent) and `/health`, `/api/v1/search` endpoints.
 - `search_web` MCP tool returning raw results for the caller's own citation handling.
 - Configurable search counts, optional page fetch with trafilatura (markdown output) and DEBUG logging.
 - Pluggable cache (`redis`, `memory`, `disabled`) for planner, search and fetch results.
