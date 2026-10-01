@@ -61,6 +61,9 @@ services:
     volumes:
       - ./src:/app/src
       - ./tests:/app/tests
+    labels:
+      # Picked up by the lint and tests workflows.
+      dk.itkdev.python: "true"
 
   searxng:
     image: searxng/searxng:latest
